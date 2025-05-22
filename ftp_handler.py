@@ -10,12 +10,14 @@ class FTPHandler:
         self.host = os.getenv('FTP_HOST')
         self.username = os.getenv('FTP_USERNAME')
         self.password = os.getenv('FTP_PASSWORD')
+        self.port = int(os.getenv('FTP_PORT', 21))  # Port par défaut 21
         self.remote_path = os.getenv('FTP_PATH', '/')
 
     def connect(self):
         """Établir la connexion au serveur FTP"""
         try:
-            ftp = ftplib.FTP(self.host)
+            ftp = ftplib.FTP()
+            ftp.connect(self.host, self.port)
             ftp.login(self.username, self.password)
             ftp.cwd(self.remote_path)
             return ftp

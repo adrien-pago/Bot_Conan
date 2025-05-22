@@ -11,9 +11,10 @@ pip install -r requirements.txt
 
 2. Configurez le fichier `.env` avec vos informations :
 - `DISCORD_TOKEN` : Token de votre bot Discord
-- `FTP_HOST` : Adresse du serveur FTP
+- `FTP_HOST` : Adresse du serveur FTP (ex: 176.57.178.12)
 - `FTP_USERNAME` : Nom d'utilisateur FTP
 - `FTP_PASSWORD` : Mot de passe FTP
+- `FTP_PORT` : Port FTP (ex: 28321)
 - `FTP_PATH` : Chemin sur le serveur FTP (optionnel)
 
 ## Commandes disponibles
@@ -34,3 +35,5 @@ pip install -r requirements.txt
 - Ne partagez jamais votre fichier `.env`
 - Assurez-vous que votre token Discord est sécurisé
 - Utilisez des mots de passe forts pour votre FTP
+- Le fichier `.env` est ignoré par git (dans .gitignore)
+- Un fichier `.env.example` est fourni comme modèle
