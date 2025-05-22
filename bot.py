@@ -100,11 +100,31 @@ async def build(ctx):
         for player in constructions:
             if player['buildings'] > 0:
                 types = ", ".join(player['building_types']) if player['building_types'] else "N/A"
-                lines.append(f"- {player['name']} ({player['clan']}) : {player['buildings']} constructions ({player['instances']} instances) - Types: {types}")
+                line = f"- {player['name']} ({player['clan']}) : {player['buildings']} constructions ({player['instances']} instances) - Types: {types}"
+                lines.append(line)
             else:
                 lines.append(f"- {player['name']} ({player['clan']}) : Pas de construction")
 
-        await ctx.send("\n".join(lines))
+        # Diviser le message en plusieurs parties si nécessaire
+        max_length = 1800  # Laisser un peu de marge
+        current_message = ""
+        messages = []
+        
+        for line in lines:
+            if len(current_message) + len(line) + 1 > max_length and current_message:
+                messages.append(current_message)
+                current_message = line
+            else:
+                if current_message:
+                    current_message += "\n"
+                current_message += line
+        
+        if current_message:
+            messages.append(current_message)
+
+        # Envoyer les messages
+        for message in messages:
+            await ctx.send(message)
     except Exception as e:
         await ctx.send(f"❌ Erreur : {e}")
         print(f"Erreur dans la commande !build: {e}")

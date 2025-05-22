@@ -119,17 +119,6 @@ class DatabaseManager:
                     'building_types': list(data['classes']) if data['classes'] else []
                 })
 
-            # Construire la liste des résultats
-            results = []
-            for player_id, name, guild_id, building_count, instance_count in players:
-                clan_name = clans.get(guild_id, "Pas de clan") if guild_id else "Pas de clan"
-                results.append({
-                    'name': name,
-                    'clan': clan_name,
-                    'buildings': building_count,
-                    'instances': instance_count
-                })
-
             conn.close()
             os.remove(temp_path)
             return results
