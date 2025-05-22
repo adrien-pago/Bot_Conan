@@ -85,7 +85,7 @@ async def joueurs(ctx):
 @bot.command(name='build')
 async def build(ctx):
     """
-    !build → affiche le nombre de constructions par joueur, classé par nombre de constructions
+    !build → affiche le nombre de pièces de construction par joueur
     """
     try:
         # Récupérer les données depuis le FTP
@@ -96,11 +96,22 @@ async def build(ctx):
             return await ctx.send("Aucune construction trouvée.")
 
         # Construire le message
-        lines = ["**Constructions par joueur :**"]
+        lines = ["**Nombre de pièces de construction par joueur :**"]
+        
+        # Trier les joueurs par nombre d'instances
+        constructions.sort(key=lambda x: x['instances'], reverse=True)
+        
         for player in constructions:
-            if player['buildings'] > 0:
-                types = ", ".join(player['building_types']) if player['building_types'] else "N/A"
-                line = f"- {player['name']} ({player['clan']}) : {player['buildings']} constructions ({player['instances']} instances) - Types: {types}"
+            if player['instances'] > 0:
+                # Simplifier les types de constructions pour l'affichage
+                building_types = []
+                for btype in player['building_types']:
+                    # Extraire le nom simple du type de construction
+                    simple_type = btype.split('/')[-1].replace('_C', '')
+                    building_types.append(simple_type)
+                
+                types_str = ", ".join(building_types) if building_types else "N/A"
+                line = f"- {player['name']} ({player['clan']}) : {player['instances']} pièces - Types: {types_str}"
                 lines.append(line)
             else:
                 lines.append(f"- {player['name']} ({player['clan']}) : Pas de construction")
@@ -132,6 +143,64 @@ async def build(ctx):
 # --------------------------
 # 7) Commande !clans
 # --------------------------
+@bot.command(name='clans')
+async def clans(ctx):
+    """
+    !clans → affiche la liste des clans avec leurs membres et les joueurs sans clan
+    """
+    try:
+        # Récupérer les données depuis le FTP
+        database = DatabaseManager()
+        clans_data = database.get_clans_and_players(ftp_handler)
+        
+        if not clans_data:
+            return await ctx.send("Aucune donnée de clan trouvée.")
+
+        # Construire le message
+        messages = []
+        current_message = "**Liste des clans et joueurs :**\n\n"
+        
+        # Afficher d'abord les clans
+        for clan in clans_data:
+            clan_section = f"**{clan['name']}**\n"
+            if clan['members']:
+                clan_section += "Membres :\n"
+                for member in clan['members']:
+                    clan_section += f"- {member}\n"
+            else:
+                clan_section += "Aucun membre\n"
+            clan_section += "\n"
+            
+            # Vérifier si on dépasse la limite de caractères
+            if len(current_message) + len(clan_section) > 1800:
+                messages.append(current_message)
+                current_message = clan_section
+            else:
+                current_message += clan_section
+        
+        # Afficher les joueurs sans clan
+        if clans_data and clans_data[0]['solo_players']:
+            solo_section = "**Joueurs sans clan :**\n"
+            for player in clans_data[0]['solo_players']:
+                solo_section += f"- {player}\n"
+            
+            if len(current_message) + len(solo_section) > 1800:
+                messages.append(current_message)
+                current_message = solo_section
+            else:
+                current_message += solo_section
+        
+        # Ajouter le dernier message s'il n'est pas vide
+        if current_message:
+            messages.append(current_message)
+
+        # Envoyer les messages
+        for message in messages:
+            await ctx.send(message)
+            
+    except Exception as e:
+        await ctx.send(f"❌ Erreur : {e}")
+        print(f"Erreur dans la commande !clans: {e}")
 
 # --------------------------
 # 8) Démarrage du Bot

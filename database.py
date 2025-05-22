@@ -53,6 +53,7 @@ class DatabaseManager:
         - clan: nom du clan
         - buildings: nombre de constructions
         - instances: nombre d'instances
+        - building_types: liste des types de constructions
         """
         try:
             # Lire la base de données depuis le FTP
@@ -70,53 +71,47 @@ class DatabaseManager:
             cur.execute("SELECT guildId, name FROM guilds")
             clans = {row[0]: row[1] for row in cur.fetchall()}
 
-            # Récupérer les informations détaillées pour comprendre la structure des données
-            debug_query = """
+            # Requête principale pour obtenir les statistiques de construction
+            query = """
+                WITH player_buildings AS (
+                    SELECT 
+                        c.id as char_id,
+                        c.char_name,
+                        c.guild,
+                        b.object_id,
+                        COUNT(bi.instance_id) as instance_count
+                    FROM characters c
+                    LEFT JOIN buildings b ON c.id = b.owner_id
+                    LEFT JOIN building_instances bi ON b.object_id = bi.object_id
+                    WHERE c.isAlive = 1
+                    GROUP BY c.id, c.char_name, c.guild, b.object_id
+                )
                 SELECT 
-                    c.id as char_id,
-                    c.char_name,
-                    c.guild,
-                    b.object_id,
-                    bi.instance_id,
-                    bi.class as building_class
-                FROM characters c
-                LEFT JOIN buildings b ON c.id = b.owner_id
-                LEFT JOIN building_instances bi ON b.object_id = bi.object_id
-                WHERE c.isAlive = 1
-                ORDER BY c.char_name, b.object_id, bi.instance_id
+                    char_name,
+                    guild,
+                    SUM(instance_count) as total_instances,
+                    GROUP_CONCAT(DISTINCT object_id) as building_ids
+                FROM player_buildings
+                GROUP BY char_id, char_name, guild
+                ORDER BY total_instances DESC, char_name
             """
             
-            cur.execute(debug_query)
-            debug_results = cur.fetchall()
-            
-            # Créer un dictionnaire pour stocker les données par joueur
-            player_buildings = {}
-            for row in debug_results:
-                char_id, name, guild_id, object_id, instance_id, building_class = row
-                if name not in player_buildings:
-                    player_buildings[name] = {
-                        'guild_id': guild_id,
-                        'buildings': set(),
-                        'instances': set(),
-                        'classes': set()
-                    }
-                if object_id:
-                    player_buildings[name]['buildings'].add(object_id)
-                    if instance_id:
-                        player_buildings[name]['instances'].add(instance_id)
-                        if building_class:
-                            player_buildings[name]['classes'].add(building_class)
-
-            # Construire le résultat final
+            cur.execute(query)
             results = []
-            for name, data in player_buildings.items():
-                clan_name = clans.get(data['guild_id'], "Pas de clan") if data['guild_id'] else "Pas de clan"
+            
+            for row in cur.fetchall():
+                name, guild_id, instances, building_ids = row
+                clan_name = clans.get(guild_id, "Pas de clan") if guild_id else "Pas de clan"
+                
+                # Convertir la chaîne de building_ids en liste
+                building_types = building_ids.split(',') if building_ids else []
+                
                 results.append({
                     'name': name,
                     'clan': clan_name,
-                    'buildings': len(data['buildings']),
-                    'instances': len(data['instances']),
-                    'building_types': list(data['classes']) if data['classes'] else []
+                    'buildings': 0,  # On ne compte plus les buildings
+                    'instances': instances or 0,
+                    'building_types': building_types
                 })
 
             conn.close()
@@ -125,4 +120,79 @@ class DatabaseManager:
 
         except Exception as e:
             print(f"❌ Erreur dans get_constructions_by_player: {e}")
+            return []
+
+    def get_clans_and_players(self, ftp_handler) -> list[dict]:
+        """
+        Récupère la liste des clans avec leurs membres et les joueurs sans clan.
+        Retourne une liste de dictionnaires avec les clés:
+        - name: nom du clan
+        - members: liste des membres du clan
+        - solo_players: liste des joueurs sans clan
+        """
+        try:
+            # Lire la base de données depuis le FTP
+            db_data = ftp_handler.read_database(self.remote_db)
+            if db_data is None:
+                print("❌ Impossible de lire la base de données depuis le FTP")
+                return []
+
+            # Créer un fichier temporaire pour la base de données
+            temp_path = _load_db_from_bytes(db_data)
+            conn = sqlite3.connect(temp_path)
+            cur = conn.cursor()
+
+            # Requête pour obtenir les clans et leurs membres
+            query = """
+                WITH clan_members AS (
+                    SELECT 
+                        g.guildId,
+                        g.name as clan_name,
+                        c.char_name,
+                        c.level,
+                        c.lastTimeOnline
+                    FROM guilds g
+                    LEFT JOIN characters c ON g.guildId = c.guild
+                    WHERE c.isAlive = 1
+                ),
+                solo_players AS (
+                    SELECT 
+                        char_name,
+                        level,
+                        lastTimeOnline
+                    FROM characters
+                    WHERE guild IS NULL AND isAlive = 1
+                )
+                SELECT 
+                    clan_name,
+                    GROUP_CONCAT(char_name || ' (Niveau ' || level || ')') as members,
+                    (SELECT GROUP_CONCAT(char_name || ' (Niveau ' || level || ')')
+                     FROM solo_players) as solo_players
+                FROM clan_members
+                GROUP BY clan_name
+                ORDER BY clan_name
+            """
+            
+            cur.execute(query)
+            results = []
+            
+            for row in cur.fetchall():
+                clan_name, members, solo_players = row
+                
+                # Convertir les chaînes en listes
+                members_list = members.split(',') if members else []
+                solo_players_list = solo_players.split(',') if solo_players else []
+                
+                results.append({
+                    'name': clan_name,
+                    'members': members_list,
+                    'solo_players': solo_players_list
+                })
+
+            conn.close()
+            os.remove(temp_path)
+            return results
+
+        except Exception as e:
+            print(f"❌ Erreur dans get_clans_and_players: {e}")
             return []
