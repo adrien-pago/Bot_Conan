@@ -19,8 +19,7 @@ pip install -r requirements.txt
 
 ## Commandes disponibles
 
-- `!afficher_info` : Affiche les informations récupérées depuis le FTP
-- `!stats` : Affiche les statistiques de la base de données
+
 
 ## Structure du projet
 
@@ -34,6 +33,6 @@ pip install -r requirements.txt
 
 - Ne partagez jamais votre fichier `.env`
 - Assurez-vous que votre token Discord est sécurisé
-- Utilisez des mots de passe forts pour votre FTP
+- Utilisez des mots de passe forts pour le FTP
 - Le fichier `.env` est ignoré par git (dans .gitignore)
-- Un fichier `.env.example` est fourni comme modèle
+

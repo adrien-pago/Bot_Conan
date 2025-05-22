@@ -24,25 +24,12 @@ class FTPHandler:
         except Exception as e:
             raise Exception(f"Erreur de connexion FTP : {str(e)}")
 
-    def get_data(self):
-        """Récupérer les données depuis le FTP"""
+    def test_connection(self):
+        """Teste la connexion au serveur FTP"""
         try:
             ftp = self.connect()
-            files = ftp.nlst()
-            data = []
-            
-            # Parcourir les fichiers et récupérer les informations
-            for file in files:
-                try:
-                    # Ici vous devrez adapter selon le format de vos fichiers
-                    # Par exemple si c'est du JSON
-                    with open(file, 'r') as f:
-                        content = json.load(f)
-                        data.append(content)
-                except Exception as e:
-                    print(f"Erreur lors de la lecture de {file}: {str(e)}")
-            
             ftp.quit()
-            return data
+            return True
         except Exception as e:
-            raise Exception(f"Erreur lors de la récupération des données : {str(e)}")
+            print(f"Erreur de connexion FTP : {str(e)}")
+            return False
