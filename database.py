@@ -66,6 +66,10 @@ class DatabaseManager:
             conn = sqlite3.connect(temp_path)
             cur = conn.cursor()
 
+            # Récupérer les noms des clans
+            cur.execute("SELECT guildId, name FROM guilds")
+            clans = {row[0]: row[1] for row in cur.fetchall()}
+
             # Récupérer les informations détaillées pour comprendre la structure des données
             debug_query = """
                 SELECT 
@@ -114,10 +118,6 @@ class DatabaseManager:
                     'instances': len(data['instances']),
                     'building_types': list(data['classes']) if data['classes'] else []
                 })
-
-            # Récupérer les noms des clans
-            cur.execute("SELECT guildId, name FROM guilds")
-            clans = {row[0]: row[1] for row in cur.fetchall()}
 
             # Construire la liste des résultats
             results = []
