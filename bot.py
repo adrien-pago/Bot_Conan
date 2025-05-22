@@ -7,9 +7,9 @@ import uuid
 from dotenv import load_dotenv
 import discord
 from discord.ext import commands
-
 from ftp_handler import FTPHandler
 from rcon import RconClient
+from database import DatabaseManager
 
 # --------------------------
 # 1) Charger les variables
@@ -82,11 +82,36 @@ async def joueurs(ctx):
 # --------------------------
 # 6) Commande !build
 # --------------------------
+@bot.command(name='build')
+async def build(ctx):
+    """
+    !build → affiche le nombre de constructions par joueur, classé par nombre de constructions
+    """
+    try:
+        # Récupérer les données depuis le FTP
+        database = DatabaseManager()
+        constructions = database.get_constructions_by_player(ftp_handler)
+        
+        if not constructions:
+            return await ctx.send("Aucune construction trouvée.")
+
+        # Construire le message
+        lines = ["**Constructions par joueur :**"]
+        for player in constructions:
+            if player['buildings'] > 0:
+                types = ", ".join(player['building_types']) if player['building_types'] else "N/A"
+                lines.append(f"- {player['name']} ({player['clan']}) : {player['buildings']} constructions ({player['instances']} instances) - Types: {types}")
+            else:
+                lines.append(f"- {player['name']} ({player['clan']}) : Pas de construction")
+
+        await ctx.send("\n".join(lines))
+    except Exception as e:
+        await ctx.send(f"❌ Erreur : {e}")
+        print(f"Erreur dans la commande !build: {e}")
 
 # --------------------------
 # 7) Commande !clans
 # --------------------------
-
 
 # --------------------------
 # 8) Démarrage du Bot

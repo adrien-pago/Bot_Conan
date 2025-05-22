@@ -2,11 +2,32 @@
 import sqlite3
 import os
 from dotenv import load_dotenv
+import tempfile
+import uuid
 
 load_dotenv()
 
+# --------------------------
+# 1) Charger les créer un fichier temporaire
+# --------------------------
+def _load_db_from_bytes(db_bytes: bytes) -> str:
+    """
+    Écrit db_bytes dans un fichier temporaire sur disque, et renvoie son chemin.
+    Il faut fermer le fichier avant de l'ouvrir avec sqlite3 sur Windows.
+    """
+    tmp_dir = tempfile.gettempdir()
+    tmp_name = f"conan_db_{uuid.uuid4().hex}.db"
+    tmp_path = os.path.join(tmp_dir, tmp_name)
+    with open(tmp_path, 'wb') as f:
+        f.write(db_bytes)
+    return tmp_path
+
+# --------------------------
+# 2) Compter le nombre de pièce par joueur
+# --------------------------
 class DatabaseManager:
     def __init__(self):
+        """Initialise le chemin de la base de données sur le FTP"""
         self.local_db = 'game.db.local'
         self.remote_db = os.getenv('FTP_DB_PATH')  # ex. "ConanSandbox/Saved/1388322/game.db"
 
@@ -24,148 +45,95 @@ class DatabaseManager:
             print(f"❌ Impossible d'accéder à la base de données : {e}")
             return False
 
-    def get_constructions_by_clan(self, ftp_handler) -> list[tuple[str, int]]:
-        """Récupère le nombre de constructions par clan en lisant directement depuis le FTP"""
+    def get_constructions_by_player(self, ftp_handler) -> list[dict]:
+        """
+        Récupère le nombre de constructions par joueur, avec le nombre d'instances.
+        Retourne une liste de dictionnaires avec les clés:
+        - name: nom du joueur
+        - clan: nom du clan
+        - buildings: nombre de constructions
+        - instances: nombre d'instances
+        """
         try:
             # Lire la base de données depuis le FTP
             db_data = ftp_handler.read_database(self.remote_db)
             if db_data is None:
+                print("❌ Impossible de lire la base de données depuis le FTP")
                 return []
-            
-            # Créer une connexion SQLite en mémoire
-            from io import BytesIO
-            
-            # Créer une base de données temporaire en mémoire
-            with BytesIO(db_data) as f:
-                # Sauvegarder temporairement la base de données
-                temp_path = 'temp.db'
-                with open(temp_path, 'wb') as temp_file:
-                    temp_file.write(f.read())
-                
-                # Ouvrir la base de données temporaire
-                conn = sqlite3.connect(temp_path)
-                cur = conn.cursor()
-                
-                # D'abord récupérer tous les clans
-                cur.execute("SELECT guildId, name FROM guilds ORDER BY name")
-                all_guilds = cur.fetchall()
-                
-                # Ensuite récupérer les constructions
-                query = """
-                    SELECT 
-                        g.name AS GuildName,
-                        COUNT(b.object_id) AS BuildingCount,
-                        COUNT(DISTINCT bi.instance_id) AS InstanceCount
-                    FROM guilds g
-                    LEFT JOIN buildings b ON g.guildId = b.owner_id
-                    LEFT JOIN building_instances bi ON b.object_id = bi.object_id
-                    GROUP BY g.guildId, g.name
-                    ORDER BY BuildingCount DESC
-                """
-                
-                cur.execute(query)
-                constructions = cur.fetchall()
-                
-                # Construire le résultat final
-                results = []
-                for guild_id, guild_name in all_guilds:
-                    # Chercher les données de construction pour ce clan
-                    found = False
-                    for clan_name, building_count, instance_count in constructions:
-                        if clan_name == guild_name:
-                            found = True
-                            results.append((guild_name, building_count, instance_count))
-                            break
-                    
-                    # Si le clan n'a pas de construction, l'ajouter avec 0
-                    if not found:
-                        results.append((guild_name, 0, 0))
-                
-                conn.close()
-                
-                # Nettoyer le fichier temporaire
-                import os
-                os.remove(temp_path)
-                
-                return results
-            
-        except Exception as e:
-            print(f"❌ Erreur dans get_constructions_by_clan: {e}")
-            return []
 
-    def get_players_and_clans(self, ftp_handler=None) -> dict:
-        """Récupère les clans et leurs membres, ainsi que les joueurs sans clan"""
-        try:
-            # Lire la base de données depuis le FTP si spécifié, sinon utiliser la locale
-            if ftp_handler:
-                db_data = ftp_handler.read_database(self.remote_db)
-                if db_data is None:
-                    return {}
-                
-                # Créer une base de données temporaire
-                from io import BytesIO
-                with BytesIO(db_data) as f:
-                    temp_path = 'temp.db'
-                    with open(temp_path, 'wb') as temp_file:
-                        temp_file.write(f.read())
-                    conn = sqlite3.connect(temp_path)
-            else:
-                conn = sqlite3.connect(self.local_db)
-            
+            # Créer un fichier temporaire pour la base de données
+            temp_path = _load_db_from_bytes(db_data)
+            conn = sqlite3.connect(temp_path)
             cur = conn.cursor()
-            
-            # Récupérer tous les clans
-            cur.execute("SELECT guildId, name FROM guilds ORDER BY name")
-            clans = {row[0]: row[1] for row in cur.fetchall()}
-            
-            # Récupérer tous les joueurs
-            query = """
+
+            # Récupérer les informations détaillées pour comprendre la structure des données
+            debug_query = """
                 SELECT 
-                    c.id,
+                    c.id as char_id,
                     c.char_name,
                     c.guild,
-                    c.level,
-                    c.rank
+                    b.object_id,
+                    bi.instance_id,
+                    bi.class as building_class
                 FROM characters c
+                LEFT JOIN buildings b ON c.id = b.owner_id
+                LEFT JOIN building_instances bi ON b.object_id = bi.object_id
                 WHERE c.isAlive = 1
-                ORDER BY c.guild, c.char_name
+                ORDER BY c.char_name, b.object_id, bi.instance_id
             """
             
-            cur.execute(query)
-            players = cur.fetchall()
+            cur.execute(debug_query)
+            debug_results = cur.fetchall()
             
-            # Construire la structure des données
-            result = {
-                'clans': {},
-                'sans_clan': []
-            }
-            
-            # Organiser les joueurs par clan
-            for player_id, name, guild_id, level, rank in players:
-                if guild_id in clans:
-                    clan_name = clans[guild_id]
-                    if clan_name not in result['clans']:
-                        result['clans'][clan_name] = []
-                    result['clans'][clan_name].append({
-                        'name': name,
-                        'level': level,
-                        'rank': rank
-                    })
-                else:
-                    result['sans_clan'].append({
-                        'name': name,
-                        'level': level,
-                        'rank': rank
-                    })
-            
+            # Créer un dictionnaire pour stocker les données par joueur
+            player_buildings = {}
+            for row in debug_results:
+                char_id, name, guild_id, object_id, instance_id, building_class = row
+                if name not in player_buildings:
+                    player_buildings[name] = {
+                        'guild_id': guild_id,
+                        'buildings': set(),
+                        'instances': set(),
+                        'classes': set()
+                    }
+                if object_id:
+                    player_buildings[name]['buildings'].add(object_id)
+                    if instance_id:
+                        player_buildings[name]['instances'].add(instance_id)
+                        if building_class:
+                            player_buildings[name]['classes'].add(building_class)
+
+            # Construire le résultat final
+            results = []
+            for name, data in player_buildings.items():
+                clan_name = clans.get(data['guild_id'], "Pas de clan") if data['guild_id'] else "Pas de clan"
+                results.append({
+                    'name': name,
+                    'clan': clan_name,
+                    'buildings': len(data['buildings']),
+                    'instances': len(data['instances']),
+                    'building_types': list(data['classes']) if data['classes'] else []
+                })
+
+            # Récupérer les noms des clans
+            cur.execute("SELECT guildId, name FROM guilds")
+            clans = {row[0]: row[1] for row in cur.fetchall()}
+
+            # Construire la liste des résultats
+            results = []
+            for player_id, name, guild_id, building_count, instance_count in players:
+                clan_name = clans.get(guild_id, "Pas de clan") if guild_id else "Pas de clan"
+                results.append({
+                    'name': name,
+                    'clan': clan_name,
+                    'buildings': building_count,
+                    'instances': instance_count
+                })
+
             conn.close()
-            
-            if ftp_handler:
-                import os
-                os.remove(temp_path)
-            
-            return result
-            
+            os.remove(temp_path)
+            return results
+
         except Exception as e:
-            print(f"❌ Erreur dans get_players_and_clans: {e}")
-            return {}
+            print(f"❌ Erreur dans get_constructions_by_player: {e}")
+            return []
