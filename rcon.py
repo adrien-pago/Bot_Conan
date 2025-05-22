@@ -1,81 +1,69 @@
-import socket
-import struct
-import os
+# rcon.py
+
+import socket, struct, os
 from dotenv import load_dotenv
 
 load_dotenv()
 
-class ServerQuery:
-    def __init__(self):
-        """Initialisation du client de requête serveur"""
-        self.host = os.getenv('FTP_HOST')
-        self.port = int(os.getenv('RCON_PORT', 27015))  # Par défaut, c'est le port jeu + 1
+class RconClient:
+    def __init__(self, timeout: float = 10.0):
+        self.host     = os.getenv('GAME_SERVER_HOST')
+        self.port     = int(os.getenv('RCON_PORT'))
+        self.password = os.getenv('RCON_PASSWORD')
 
-    def _send_request(self, request_type, challenge=0):
-        """Envoie une requête au serveur"""
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-                sock.settimeout(2)  # Délai normal pour une requête UDP
-                sock.connect((self.host, self.port))
-                
-                # Créer le paquet
-                if request_type == 'info':
-                    packet = b'\xFF\xFF\xFF\xFFTSource Engine Query\x00'
-                elif request_type == 'players':
-                    packet = struct.pack('cBBB', b'\xFF', 0x55, challenge & 0xFF, challenge >> 8)
-                
-                sock.send(packet)
-                response = sock.recv(4096)
-                return response
-        except Exception as e:
-            print(f"Erreur lors de la requête : {str(e)}")
-            return None
+        if not (self.host and self.password):
+            raise RuntimeError("❌ Host ou mot de passe RCON manquant dans .env")
 
-    def get_online_players(self):
-        """Obtenir la liste des joueurs connectés"""
-        try:
-            # D'abord obtenir un challenge
-            response = self._send_request('info')
-            if not response:
-                return []
-                
-            # Extraire le challenge
-            challenge = struct.unpack('i', response[5:9])[0]
-            
-            # Obtenir la liste des joueurs
-            response = self._send_request('players', challenge)
-            if not response:
-                return []
-                
-            # Analyser la réponse
-            players = []
-            offset = 11  # Skip header
-            while offset < len(response):
-                player = {}
-                player['name'] = response[offset:].split(b'\x00')[0].decode()
-                offset += len(player['name']) + 1
-                players.append(player)
-            
-            return [player['name'] for player in players if player['name']]
-        except Exception as e:
-            print(f"Erreur lors de la récupération des joueurs : {str(e)}")
-            return []
+        # 1) Ouvrir le socket
+        self.sock = socket.create_connection((self.host, self.port), timeout)
 
-    def get_server_info(self):
-        """Obtenir les informations du serveur"""
-        try:
-            response = self._send_request('info')
-            if not response:
-                return None
-                
-            # Analyser la réponse
-            info = {}
-            info['name'] = response[11:].split(b'\x00')[0].decode()
-            info['map'] = response[11:].split(b'\x00')[1].decode()
-            info['players'] = struct.unpack('B', response[28:29])[0]
-            info['max_players'] = struct.unpack('B', response[29:30])[0]
-            
-            return info
-        except Exception as e:
-            print(f"Erreur lors de la récupération des informations serveur : {str(e)}")
-            return None
+        # 2) Authentifier
+        if not self._auth():
+            raise RuntimeError("❌ Authentification RCON échouée")
+
+    def _send_packet(self, req_id: int, type_id: int, payload: str):
+        data   = payload.encode('utf8')
+        length = 4 + 4 + len(data) + 2
+        # length, requestId, typeId, payload, two null bytes
+        pkt = struct.pack('<iii', length, req_id, type_id) + data + b'\x00\x00'
+        self.sock.sendall(pkt)
+
+    def _recv_packet(self):
+        # lire length
+        raw = self.sock.recv(4)
+        if len(raw) < 4:
+            raise ConnectionError("Réponse RCON incomplète")
+        length = struct.unpack('<i', raw)[0]
+        # lire le reste
+        data = b''
+        while len(data) < length:
+            chunk = self.sock.recv(length - len(data))
+            if not chunk:
+                break
+            data += chunk
+        req_id, type_id = struct.unpack('<ii', data[:8])
+        payload = data[8:-2].decode('utf8', errors='ignore')
+        return req_id, type_id, payload
+
+    def _auth(self) -> bool:
+        # Utiliser un petit ID (1) pour l'authentification (type=3)
+        self._send_packet(1, 3, self.password)
+        req_id, type_id, _ = self._recv_packet()
+        return req_id != -1  # -1 = échec
+
+    def execute(self, command: str) -> str:
+        # Utiliser un autre ID (2) pour l'exécution de commande (type=2)
+        self._send_packet(2, 2, command)
+        _, _, payload = self._recv_packet()
+        return payload
+
+    def get_online_players(self) -> list[str]:
+        resp    = self.execute("ListPlayers")
+        players = []
+        for line in resp.splitlines():
+            name = line.strip().split()[-1]
+            players.append(name)
+        return players
+
+    def close(self):
+        self.sock.close()
