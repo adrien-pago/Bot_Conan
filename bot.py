@@ -156,7 +156,7 @@ async def build(ctx=None):
         LIMITE_CONSTRUCTION = 12000
 
         # Construire le message
-        lines = [f"**Nombre de pièces de construction par clan (Limite: {LIMITE_CONSTRUCTION} pièces par joueur) :**"]
+        lines = [f"**Nombre de pièces de construction par clan (Limite: {LIMITE_CONSTRUCTION} pièces) :**"]
         
         # Regrouper les constructions par clan
         clans = {}
@@ -192,7 +192,7 @@ async def build(ctx=None):
                 if clan['average'] > LIMITE_CONSTRUCTION:
                     has_exceeded_limit = True
                     excess = clan['average'] - LIMITE_CONSTRUCTION
-                    line = f"❌ **{clan['name']}** ({clan['players']} joueurs) : {clan['average']} pièces/joueur (+{excess} au-dessus de la limite)"
+                    line = f"\n❌ **Clan ({clan['name']})** : {clan['average']} pièces (+{excess} au-dessus de la limite)"
                     lines.append(line)
                 else:
                     has_under_limit = True
