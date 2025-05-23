@@ -10,6 +10,10 @@ from discord.ext import commands
 from ftp_handler import FTPHandler
 from rcon import RconClient
 from database import DatabaseManager
+import time
+import datetime
+from discord.ext import tasks
+import asyncio
 
 # --------------------------
 # 1) Charger les variables
@@ -33,6 +37,8 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 # 3) Helpers
 # --------------------------
 ftp_handler = FTPHandler()
+last_channel_update = 0  # Timestamp de la dernière mise à jour du salon
+UPDATE_COOLDOWN = 300  # 5 minutes en secondes
 
 def _load_db_from_bytes(db_bytes: bytes) -> str:
     """
@@ -46,6 +52,58 @@ def _load_db_from_bytes(db_bytes: bytes) -> str:
         f.write(db_bytes)
     return tmp_path
 
+async def update_channel_name():
+    """Met à jour le nom du salon avec le nombre de joueurs"""
+    try:
+        print("Début de la mise à jour du nom du salon...")
+        # Récupérer la liste des joueurs en ligne via RCON
+        rcon = RconClient()
+        online = rcon.get_online_players()
+        rcon.close()
+        print(f"Nombre de joueurs en ligne : {len(online)}")
+
+        # Calculer le nombre
+        total_slots = 40
+        count = len(online)
+        
+        # Vérifier si c'est le raid time
+        now = datetime.datetime.now()
+        is_raid_time = (
+            now.weekday() in [2, 5, 6] and  # Mercredi (2), Samedi (5), Dimanche (6)
+            19 <= now.hour < 22  # Entre 19h et 22h
+        )
+        print(f"Raid time : {is_raid_time}")
+        
+        # Renommer le salon
+        channel = bot.get_channel(1375223092892401737)
+        if channel:
+            if is_raid_time:
+                await channel.edit(name=f"🟢〔{count}〕Players ⚔️")
+            else:
+                await channel.edit(name=f"🟢〔{count}〕Players 🛡️")
+            print("Nom du salon mis à jour avec succès")
+        else:
+            print("Salon non trouvé")
+    except Exception as e:
+        print(f"Erreur lors de la mise à jour du salon : {e}")
+        # En cas d'erreur, mettre à jour avec le statut d'erreur
+        channel = bot.get_channel(1375223092892401737)
+        if channel:
+            await channel.edit(name="🔴 〔0-40〕 ")
+            print("Salon mis à jour avec le statut d'erreur")
+
+@tasks.loop(minutes=5)
+async def update_channel_name_task():
+    """Tâche planifiée pour mettre à jour le nom du salon toutes les 5 minutes"""
+    print("Exécution de la tâche de mise à jour du salon...")
+    try:
+        await update_channel_name()
+        print("Mise à jour du salon réussie")
+        # Ajouter un délai pour éviter le rate limit
+        await asyncio.sleep(2)
+    except Exception as e:
+        print(f"Erreur dans la tâche de mise à jour du salon : {e}")
+
 # --------------------------
 # 4) on_ready
 # --------------------------
@@ -57,35 +115,31 @@ async def on_ready():
         return print(f"❌ Salon {TEST_CHANNEL_ID} introuvable")
     await channel.send("✅ Bot démarré, connexion FTP OK !" if ftp_handler.test_connection()
                        else "❌ Connexion FTP échouée !")
+    
+    # Démarrer les tâches planifiées
+    print("Démarrage des tâches planifiées...")
+    update_channel_name_task.start()
+    build_task.start()
+    print("Tâches planifiées démarrées")
+    
+    # Faire une première mise à jour immédiate
+    print("Première mise à jour immédiate...")
+    await update_channel_name()
+    await build(None)
+    print("Première mise à jour terminée")
 
 # --------------------------
-# 5) Commande !joueurs
-# --------------------------
-@bot.command(name='joueurs')
-async def joueurs(ctx):
-    """
-    !joueurs → affiche simplement le nombre de joueurs actuellement connectés.
-    """
-    # 1) Récupérer la liste des joueurs en ligne via RCON
-    try:
-        rcon = RconClient()
-        online = rcon.get_online_players()
-        rcon.close()
-    except Exception as e:
-        return await ctx.send(f"❌ Erreur RCON : {e}")
-
-    # 2) Calculer et afficher uniquement le nombre
-    total_slots = 40  # Remplacez par le nombre max réel de votre serveur
-    count = len(online)
-    await ctx.send(f"Nombre joueur connecté : {count}/{total_slots}")
-
-# --------------------------
-# 6) Commande !build
+# 5) Commande !build
 # --------------------------
 @bot.command(name='build')
-async def build(ctx):
+async def build_command(ctx):
+    """Commande !build pour afficher le nombre de pièces de construction"""
+    await build()
+
+async def build(ctx=None):
     """
-    !build → affiche le nombre de pièces de construction par joueur
+    Affiche le nombre de pièces de construction par joueur
+    Peut être appelé manuellement avec !build ou automatiquement via la tâche planifiée
     """
     try:
         # Récupérer les données depuis le FTP
@@ -93,28 +147,63 @@ async def build(ctx):
         constructions = database.get_constructions_by_player(ftp_handler)
         
         if not constructions:
-            return await ctx.send("Aucune construction trouvée.")
+            message = "Aucune construction trouvée."
+            channel = bot.get_channel(1375234869071708260)
+            await channel.send(message)
+            return
+
+        # Constante pour la limite de construction
+        LIMITE_CONSTRUCTION = 12000
 
         # Construire le message
-        lines = ["**Nombre de pièces de construction par joueur :**"]
+        lines = [f"**Nombre de pièces de construction par clan (Limite: {LIMITE_CONSTRUCTION} pièces par joueur) :**"]
         
-        # Trier les joueurs par nombre d'instances
-        constructions.sort(key=lambda x: x['instances'], reverse=True)
-        
+        # Regrouper les constructions par clan
+        clans = {}
         for player in constructions:
-            if player['instances'] > 0:
-                # Simplifier les types de constructions pour l'affichage
-                building_types = []
-                for btype in player['building_types']:
-                    # Extraire le nom simple du type de construction
-                    simple_type = btype.split('/')[-1].replace('_C', '')
-                    building_types.append(simple_type)
-                
-                types_str = ", ".join(building_types) if building_types else "N/A"
-                line = f"- {player['name']} ({player['clan']}) : {player['instances']} pièces - Types: {types_str}"
-                lines.append(line)
-            else:
-                lines.append(f"- {player['name']} ({player['clan']}) : Pas de construction")
+            clan = player['clan'] if player['clan'] else "Sans clan"
+            if clan not in clans:
+                clans[clan] = {'total': 0, 'players': 0}
+            clans[clan]['total'] += player['instances']
+            clans[clan]['players'] += 1
+        
+        # Calculer la moyenne par joueur pour chaque clan
+        clans_list = []
+        for clan_name, data in clans.items():
+            if data['players'] > 0:  # Éviter la division par zéro
+                average = data['total'] / data['players']
+                clans_list.append({
+                    'name': clan_name,
+                    'total': data['total'],
+                    'players': data['players'],
+                    'average': round(average)  # Arrondir à l'entier
+                })
+        
+        # Trier les clans par moyenne d'instances
+        clans_list.sort(key=lambda x: x['average'], reverse=True)
+        
+        # Variables pour suivre les dépassements
+        has_exceeded_limit = False
+        has_under_limit = False
+        
+        for clan in clans_list:
+            if clan['average'] > 0:
+                # Vérifier si la limite est dépassée
+                if clan['average'] > LIMITE_CONSTRUCTION:
+                    has_exceeded_limit = True
+                    excess = clan['average'] - LIMITE_CONSTRUCTION
+                    line = f"❌ **{clan['name']}** ({clan['players']} joueurs) : {clan['average']} pièces/joueur (+{excess} au-dessus de la limite)"
+                    lines.append(line)
+                else:
+                    has_under_limit = True
+
+        # Ajouter un message pour les clans sous la limite
+        if has_under_limit:
+            lines.append("\n✅ Pour les autres clans, tout est bon !")
+
+        # Ajouter un message de félicitations si personne ne dépasse la limite
+        if not has_exceeded_limit:
+            lines.append("\n✅ **Bravo ! Tous les clans respectent la limite de construction !**")
 
         # Diviser le message en plusieurs parties si nécessaire
         max_length = 1800  # Laisser un peu de marge
@@ -133,12 +222,48 @@ async def build(ctx):
         if current_message:
             messages.append(current_message)
 
-        # Envoyer les messages
-        for message in messages:
-            await ctx.send(message)
+        # Envoyer les messages uniquement dans le salon de rapport
+        report_channel = bot.get_channel(1375234869071708260)
+        if report_channel:
+            try:
+                # Supprimer tous les messages existants
+                await report_channel.purge(limit=10)
+                
+                # Attendre un court instant pour s'assurer que les messages sont supprimés
+                await asyncio.sleep(1)
+                
+                # Envoyer les nouveaux messages
+                for message in messages:
+                    await report_channel.send(message)
+            except Exception as e:
+                print(f"Erreur lors de l'envoi des messages : {e}")
+
     except Exception as e:
-        await ctx.send(f"❌ Erreur : {e}")
+        error_message = f"❌ Erreur : {e}"
+        channel = bot.get_channel(1375234869071708260)
+        if channel:
+            await channel.send(error_message)
         print(f"Erreur dans la commande !build: {e}")
+
+# Ajouter une variable pour suivre la dernière exécution
+last_build_time = 0
+BUILD_COOLDOWN = 60  # 60 secondes de cooldown
+
+@tasks.loop(hours=1)
+async def build_task():
+    """Tâche planifiée pour exécuter la commande build toutes les heures"""
+    global last_build_time
+    current_time = time.time()
+    
+    # Vérifier si assez de temps s'est écoulé depuis la dernière exécution
+    if current_time - last_build_time >= BUILD_COOLDOWN:
+        try:
+            await build(None)
+            last_build_time = current_time
+            # Ajouter un délai pour éviter le rate limit
+            await asyncio.sleep(2)
+        except Exception as e:
+            print(f"Erreur dans la tâche build : {e}")
 
 # --------------------------
 # 7) Commande !clans

@@ -81,7 +81,11 @@ class DatabaseManager:
                         b.object_id,
                         COUNT(bi.instance_id) as instance_count
                     FROM characters c
-                    LEFT JOIN buildings b ON c.id = b.owner_id
+                    LEFT JOIN buildings b ON 
+                        CASE 
+                            WHEN c.guild IS NULL THEN c.id = b.owner_id
+                            ELSE c.guild = b.owner_id
+                        END
                     LEFT JOIN building_instances bi ON b.object_id = bi.object_id
                     WHERE c.isAlive = 1
                     GROUP BY c.id, c.char_name, c.guild, b.object_id
