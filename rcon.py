@@ -21,7 +21,13 @@ class RconClient:
         self.sock = None
         self.connected = False
         self.event_callbacks = []
-        self._connect()
+        self.max_retries = 3
+        self.retry_delay = 5
+
+    async def initialize(self):
+        """Initialise la connexion RCON"""
+        await self._connect()
+        return self
 
     def _create_packet(self, packet_type, payload):
         """Crée un paquet RCON selon le protocole Unreal Engine"""
@@ -39,13 +45,13 @@ class RconClient:
             logger.error(f"Erreur lors de la création du paquet RCON: {e}")
             raise
 
-    def _send_packet(self, packet):
+    async def _send_packet(self, packet):
         """Envoie un paquet RCON"""
         try:
             if not self.sock:
                 raise RuntimeError("Socket non initialisé")
             
-            time.sleep(1)  # Délai plus long entre les paquets
+            await asyncio.sleep(0.5)  # Réduit le délai entre les paquets
             self.sock.sendall(packet)
             logger.debug("Paquet RCON envoyé avec succès")
         except Exception as e:
@@ -53,7 +59,7 @@ class RconClient:
             self.connected = False
             raise
 
-    def _receive_packet(self):
+    async def _receive_packet(self):
         """Reçoit un paquet RCON"""
         try:
             if not self.sock:
@@ -91,75 +97,91 @@ class RconClient:
             self.connected = False
             raise
 
-    def _connect(self):
-        """Établit la connexion RCON"""
-        try:
-            logger.debug(f"Tentative de connexion RCON à {self.host}:{self.port}")
-            
-            # Créer un nouveau socket
-            self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.sock.settimeout(self.timeout)
-            
-            # Se connecter au serveur
-            self.sock.connect((self.host, self.port))
-            logger.debug("Connexion RCON établie")
-            
-            # Attendre un peu avant l'authentification
-            time.sleep(2)
-            
-            # Envoyer le paquet d'authentification
-            auth_packet = self._create_packet(3, self.password)
-            self._send_packet(auth_packet)
-            
-            # Attendre un peu avant de recevoir la réponse
-            time.sleep(2)
-            
-            # Recevoir la réponse
-            response = self._receive_packet()
-            
-            if response['id'] == -1:
-                raise RuntimeError("Authentification RCON échouée")
-            
-            logger.debug("Authentification RCON réussie")
-            self.connected = True
-            
-        except Exception as e:
-            logger.error(f"Erreur lors de la connexion RCON: {e}")
-            if self.sock:
-                try:
-                    self.sock.close()
-                except:
-                    pass
-            self.sock = None
-            self.connected = False
-            raise RuntimeError("Impossible de se connecter au serveur RCON")
+    async def _connect(self):
+        """Établit la connexion RCON avec retry"""
+        retries = 0
+        while retries < self.max_retries:
+            try:
+                logger.debug(f"Tentative de connexion RCON à {self.host}:{self.port} (tentative {retries + 1}/{self.max_retries})")
+                
+                # Fermer l'ancienne connexion si elle existe
+                if self.sock:
+                    try:
+                        self.sock.close()
+                    except:
+                        pass
+                    self.sock = None
+                
+                # Créer un nouveau socket
+                self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                self.sock.settimeout(self.timeout)
+                
+                # Se connecter au serveur
+                self.sock.connect((self.host, self.port))
+                logger.debug("Connexion RCON établie")
+                
+                # Attendre un peu avant l'authentification
+                await asyncio.sleep(1)
+                
+                # Envoyer le paquet d'authentification
+                auth_packet = self._create_packet(3, self.password)
+                await self._send_packet(auth_packet)
+                
+                # Attendre un peu avant de recevoir la réponse
+                await asyncio.sleep(1)
+                
+                # Recevoir la réponse
+                response = await self._receive_packet()
+                
+                if response['id'] == -1:
+                    raise RuntimeError("Authentification RCON échouée")
+                
+                logger.debug("Authentification RCON réussie")
+                self.connected = True
+                return
+                
+            except Exception as e:
+                logger.error(f"Erreur lors de la connexion RCON (tentative {retries + 1}): {e}")
+                retries += 1
+                if retries < self.max_retries:
+                    logger.info(f"Tentative de reconnexion dans {self.retry_delay} secondes...")
+                    await asyncio.sleep(self.retry_delay)
+                else:
+                    raise RuntimeError(f"Impossible de se connecter au serveur RCON après {self.max_retries} tentatives")
 
-    def execute(self, command):
-        """Exécute une commande RCON"""
-        try:
-            if not self.connected:
-                self._connect()
-            
-            # Créer et envoyer le paquet de commande
-            packet = self._create_packet(2, command)
-            self._send_packet(packet)
-            
-            # Attendre un peu avant de recevoir la réponse
-            time.sleep(1)
-            
-            # Recevoir la réponse
-            response = self._receive_packet()
-            return response['payload']
-            
-        except Exception as e:
-            logger.error(f"Erreur lors de l'exécution de la commande RCON: {e}")
-            self.connected = False
-            raise
+    async def execute(self, command):
+        """Exécute une commande RCON avec retry"""
+        retries = 0
+        while retries < self.max_retries:
+            try:
+                if not self.connected:
+                    await self._connect()
+                
+                # Créer et envoyer le paquet de commande
+                packet = self._create_packet(2, command)
+                await self._send_packet(packet)
+                
+                # Attendre un peu avant de recevoir la réponse
+                await asyncio.sleep(0.5)
+                
+                # Recevoir la réponse
+                response = await self._receive_packet()
+                return response['payload']
+                
+            except Exception as e:
+                logger.error(f"Erreur lors de l'exécution de la commande RCON (tentative {retries + 1}): {e}")
+                retries += 1
+                if retries < self.max_retries:
+                    logger.info(f"Tentative de reconnexion dans {self.retry_delay} secondes...")
+                    await asyncio.sleep(self.retry_delay)
+                    await self._connect()
+                else:
+                    raise RuntimeError(f"Impossible d'exécuter la commande RCON après {self.max_retries} tentatives")
 
-    def get_online_players(self):
+    async def get_online_players(self):
         """Récupère la liste des joueurs en ligne"""
         try:
-            resp = self.execute("ListPlayers")
+            resp = await self.execute("ListPlayers")
             if not resp:
                 return []
             

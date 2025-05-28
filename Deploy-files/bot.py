@@ -97,6 +97,7 @@ async def update_channel_name():
         # Utilisation de wait_for au lieu de timeout
         try:
             rcon = RconClient()
+            await rcon.initialize()  # Initialisation asynchrone
             players = await asyncio.wait_for(rcon.get_online_players(), timeout=10.0)
             logger.debug(f"Nombre de joueurs calculé : {len(players)}")
             rcon.close()
@@ -335,6 +336,7 @@ class KillTracker:
             
             # Établir la connexion RCON
             self.rcon = RconClient()
+            await self.rcon.initialize()  # Initialisation asynchrone
             self.rcon.add_event_callback(self.handle_kill_event)
             
             # Démarrer la tâche de surveillance
