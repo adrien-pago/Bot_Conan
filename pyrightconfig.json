@@ -1,0 +1,15 @@
+{
+    "include": [
+        "*.py"
+    ],
+    "exclude": [
+        "**/node_modules",
+        "**/__pycache__"
+    ],
+    "ignore": [
+        "bot.log"
+    ],
+    "reportMissingImports": false,
+    "pythonVersion": "3.11",
+    "pythonPlatform": "Windows"
+} 

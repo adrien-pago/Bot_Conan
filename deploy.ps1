@@ -1,3 +1,4 @@
+# lancé la commande : .\deploy.ps1
 # Créer le dossier Deploy-files
 New-Item -ItemType Directory -Force -Path "Deploy-files"
 
@@ -26,4 +27,4 @@ if (Test-Path "bot.log") {
 
 # Pour copier sur le VPS, utilisez cette commande dans PowerShell :
 Write-Host "Pour copier sur le VPS, utilisez cette commande :"
-Write-Host "scp -r C:\Users\PAGOA\Documents\GitHub\Bot_Conan\Deploy-files\* root@212.227.47.132:/root/bot/bot_conan/"
+Write-Host "scp -r C:\Users\adrie\Documents\GitHub\Bot_Conan\Deploy-files\* root@212.227.47.132:/root/bot/bot_conan/"
