@@ -6,6 +6,8 @@ import tempfile
 import uuid
 from dotenv import load_dotenv
 import discord
+import asyncio
+load_dotenv()
 from discord.ext import commands
 from ftp_handler import FTPHandler
 from rcon import RconClient
@@ -17,16 +19,44 @@ import asyncio
 import logging
 import traceback
 
-# Configuration du logging
+# Configuration du logging détaillé
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
+    level=logging.DEBUG,  # Niveau de débogage plus bas
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.FileHandler('bot.log'),
         logging.StreamHandler()
     ]
 )
-logger = logging.getLogger(__name__)
+
+# Créer des loggers spécifiques pour différentes parties du bot
+logger = logging.getLogger('bot')
+logger.setLevel(logging.DEBUG)
+
+# Logger spécifique pour RCON
+rcon_logger = logging.getLogger('rcon')
+
+# Logger spécifique pour le KillTracker
+killtracker_logger = logging.getLogger('killtracker')
+
+# Configuration du logger Discord
+discord_logger = logging.getLogger('discord')
+discord_logger.setLevel(logging.INFO)
+
+# Masquer les avertissements PyNaCl qui ne sont pas pertinents pour nous
+discord_logger.propagate = False
+for handler in discord_logger.handlers:
+    handler.setLevel(logging.INFO)
+
+# Logger spécifique pour le bot
+logger = logging.getLogger('bot')
+logger.setLevel(logging.DEBUG)
+
+# Logger spécifique pour RCON
+rcon_logger = logging.getLogger('rcon')
+
+# Logger spécifique pour le KillTracker
+killtracker_logger = logging.getLogger('killtracker')
 
 # --------------------------
 # 1) Charger les variables
@@ -49,39 +79,64 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 # --------------------------
 # 3) Helpers
 # --------------------------
-ftp_handler = FTPHandler()
-last_channel_update = 0  # Timestamp de la dernière mise à jour du salon
-UPDATE_COOLDOWN = 300  # 5 minutes en secondes
-
-def _load_db_from_bytes(db_bytes: bytes) -> str:
+def _load_db_from_bytes(db_bytes: bytes):
     """
     Écrit db_bytes dans un fichier temporaire sur disque, et renvoie son chemin.
     Il faut fermer le fichier avant de l'ouvrir avec sqlite3 sur Windows.
     """
-    tmp_dir = tempfile.gettempdir()
-    tmp_name = f"conan_db_{uuid.uuid4().hex}.db"
-    tmp_path = os.path.join(tmp_dir, tmp_name)
-    with open(tmp_path, 'wb') as f:
-        f.write(db_bytes)
-    return tmp_path
+    logger.debug("Début du chargement de la base de données depuis bytes")
+    try:
+        with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+            temp_file.write(db_bytes)
+            logger.debug(f"Base de données temporaire créée: {temp_file.name}")
+            return temp_file.name
+    except Exception as e:
+        logger.error(f"Erreur lors du chargement de la base de données: {str(e)}")
+        logger.debug(f"Traceback: {traceback.format_exc()}")
+        raise
+
+ftp_handler = FTPHandler()
+last_channel_update = 0  # Timestamp de la dernière mise à jour du salon
+UPDATE_COOLDOWN = 300  # 5 minutes en secondes
 
 # --------------------------
 # 4) on_ready
 # --------------------------
 @bot.event
 async def on_ready():
-    print(f"✅ Connecté en tant que {bot.user} (ID: {bot.user.id})")
- 
-    # Démarrer les tâches planifiées
-    print("Démarrage des tâches planifiées...")
-    update_channel_name_task.start()
-    build_task.start()
-    print("Tâches planifiées démarrées")
-    
-    # Faire une première mise à jour immédiate
-    print("Première mise à jour immédiate...")
-    await update_channel_name()
-    print("Première mise à jour terminée")
+    try:
+        logger.info("Début de l'initialisation du bot")
+        logger.info(f"Bot connecté en tant que {bot.user.name}")
+        logger.info(f"ID du bot: {bot.user.id}")
+        logger.info(f"Nombre de guildes: {len(bot.guilds)}")
+        
+        # Vérifier les permissions
+        guild = bot.guilds[0]
+        me = guild.me
+        logger.info(f"Permissions du bot: {me.guild_permissions.value}")
+        
+        # Initialiser le KillTracker
+        logger.info("Initialisation du KillTracker...")
+        #await kill_tracker.start_event_monitor(bot)
+        
+        # Démarrer les tâches planifiées
+        logger.info("Démarrage des tâches planifiées...")
+        update_channel_name_task.start()
+        build_task.start()
+        #update_kills_task.start()
+        logger.info("Tâches planifiées démarrées")
+        
+        logger.info("Bot prêt et toutes les tâches démarrées")
+        
+        # Faire une première mise à jour immédiate
+        logger.info("Première mise à jour immédiate...")
+        await update_channel_name()
+        logger.info("Première mise à jour terminée")
+        
+    except Exception as e:
+        logger.error(f"Erreur critique lors de l'initialisation du bot: {str(e)}")
+        logger.debug(f"Traceback: {traceback.format_exc()}")
+        raise
 
 # --------------------------
 # 5) update_channel_name Fonction
@@ -346,6 +401,273 @@ async def clans(ctx):
         print(f"Erreur dans la commande !clans: {e}")
 
 # --------------------------
-# 8) Démarrage du Bot
+# 10) Classe KillTracker
 # --------------------------
+from classement import ClassementManager
+import rcon
+
+class KillTracker:
+    def __init__(self, channel_id: int):
+        self.channel_id = channel_id
+        self.classement_manager = ClassementManager()
+        self.rcon = rcon.RconClient()
+        self.rcon.add_event_callback(self.handle_kill_event)
+        self.event_task = None
+        self.last_kill_timestamp = None  # Pour éviter les doublons
+
+    async def start_event_monitor(self, bot):
+        """Démarre la surveillance des événements du jeu"""
+        try:
+            self.bot = bot
+            self.monitoring = True
+            logger.info("Surveillance des événements démarrée")
+            # Démarrage de la tâche de surveillance
+            self.event_task = asyncio.create_task(self.rcon.monitor_events())
+            killtracker_logger.info("Tâche de surveillance des événements démarrée")
+            
+        except Exception as e:
+            killtracker_logger.error(f"Erreur lors du démarrage de la surveillance: {str(e)}")
+            killtracker_logger.debug(f"Traceback: {traceback.format_exc()}")
+            raise
+
+    async def handle_kill_event(self, event):
+        """Gère les événements de kill"""
+        if event['type'] == 'kill':
+            try:
+                killtracker_logger.debug(f"Nouvel événement kill reçu: {event}")
+                
+                # Vérifier si c'est un kill déjà traité
+                if self.last_kill_timestamp and event['timestamp'] <= self.last_kill_timestamp:
+                    killtracker_logger.debug(f"Kill ignoré (déjà traité): {event['timestamp']}")
+                    return
+
+                # Mettre à jour la base de données locale
+                killtracker_logger.info(f"Mise à jour des stats pour {event['killer']} qui a tué {event['victim']}")
+                self.classement_manager.update_kill_stats(
+                    event['victim'],
+                    event['killer'],
+                    True
+                )
+                
+                # Envoyer le message dans Discord
+                channel = bot.get_channel(self.channel_id)
+                if channel:
+                    killtracker_logger.debug(f"Channel Discord trouvé: {channel.name}")
+                    
+                    # Limiter le nombre de messages par minute
+                    now = datetime.now()
+                    if not hasattr(self, 'last_message_time') or (now - self.last_message_time).total_seconds() > 10:
+                        killtracker_logger.info(f"Envoi du message kill dans Discord")
+                        await channel.send(f"**Kill** - {event['killer']} a tué {event['victim']} à {event['timestamp']}")
+                        self.last_message_time = now
+                    else:
+                        killtracker_logger.debug("Trop tôt pour envoyer un nouveau message")
+                else:
+                    killtracker_logger.error("Channel Discord non trouvé")
+                
+                # Mettre à jour le timestamp du dernier kill
+                killtracker_logger.debug(f"Mise à jour du timestamp: {event['timestamp']}")
+                self.last_kill_timestamp = event['timestamp']
+                
+            except Exception as e:
+                killtracker_logger.error(f"Erreur lors de la gestion de l'événement kill: {str(e)}")
+                killtracker_logger.debug(f"Traceback: {traceback.format_exc()}")
+
+    async def stop_event_monitor(self):
+        """Arrêter la surveillance des événements"""
+        if self.event_task:
+            self.event_task.cancel()
+            try:
+                await self.event_task
+            except asyncio.CancelledError:
+                pass
+            self.event_task = None
+            await self.rcon.disconnect()
+
+    async def update_kills(self, bot):
+        """Mise à jour des kills (pour maintenir la compatibilité)"""
+        try:
+            await self.start_event_monitor(bot)
+        except Exception as e:
+            logger.error(f"Erreur lors de la mise à jour des kills: {str(e)}")
+            raise
+
+async def format_kill_stats(kill_tracker):
+    try:
+        stats = kill_tracker.classement_manager.get_kill_stats()
+
+        if not stats:
+            return """```
+Classement des joueurs
+
+Player     | Kills | Deaths | Ratio
+-----------------------------------
+Aucun joueur enregistré
+```"""
+
+        message = """```
+Classement des joueurs
+
+Player     | Kills | Deaths | Ratio
+-----------------------------------
+"""
+
+        for stat in stats:
+            player_name = stat['player_name'][:10].ljust(10)
+            kills = str(stat['kills']).rjust(5)
+            deaths = str(stat['deaths']).rjust(6)
+            ratio = str(stat['ratio']).rjust(5)
+            message += f"{player_name} | {kills} | {deaths} | {ratio}\n"
+
+        message += "```"
+        return message
+
+    except Exception as e:
+        logger.error(f"Erreur lors du formatage des stats: {str(e)}")
+        return f"Erreur: {str(e)}"
+
+kill_tracker = KillTracker(os.getenv('KILLS_CHANNEL_ID'))
+# --------------------------
+# 11) Commande !kills
+# --------------------------
+@bot.command(name='kills')
+async def kills_command(ctx):
+    """Affiche le classement des kills"""
+    try:
+        logger.info(f"Commande !kills appelée par {ctx.author.name}")
+        stats = format_kill_stats(kill_tracker)
+        await ctx.send(stats)
+    except Exception as e:
+        logger.error(f"Erreur dans la commande !kills: {e}")
+        logger.debug(f"Traceback: {traceback.format_exc()}")
+        await ctx.send(f"❌ Erreur : {e}")
+
+# --------------------------
+# 14) Tâche de mise à jour des kills
+# --------------------------
+@tasks.loop(seconds=5)  # Mise à jour toutes les 5 secondes
+async def update_kills_task():
+    try:
+        # Mettre à jour les kills
+        await kill_tracker.update_kills(bot)
+        logger.info("Vérification des kills effectuée")
+        
+        # Mettre à jour le tableau dans le salon
+        channel = bot.get_channel(KILLS_CHANNEL_ID)
+        if channel:
+            stats = await format_kill_stats(kill_tracker)
+            await channel.send(stats)
+    except Exception as e:
+        logger.error(f"Erreur dans la tâche update_kills: {str(e)}")
+        # En cas d'erreur, attendre 10 secondes avant de réessayer
+        await asyncio.sleep(10)
+        # Réessayer une fois
+        try:
+            await kill_tracker.update_kills(bot)
+            channel = bot.get_channel(KILLS_CHANNEL_ID)
+            if channel:
+                stats = await format_kill_stats(kill_tracker)
+                await channel.send(stats)
+        except Exception as e:
+            logger.error(f"Erreur lors de la réessai: {str(e)}")
+            return  # Arrêter la boucle en cas d'échec
+        # En cas d'erreur, attendre 10 secondes avant de réessayer
+        await asyncio.sleep(10)
+        # Réessayer une fois
+        try:
+            await kill_tracker.update_kills(bot)
+        except Exception as e:
+            logger.error(f"Erreur lors de la mise à jour des kills: {str(e)}")
+            return  # Arrêter la boucle en cas d'échec
+# --------------------------
+intents = discord.Intents.default()
+intents.message_content = True
+bot = commands.Bot(command_prefix='!', intents=intents)
+
+# --------------------------
+# 16) on_ready
+# --------------------------
+@bot.event
+async def on_ready():
+    try:
+        logger.info(f"Bot connecté en tant que {bot.user.name}")
+        logger.info(f"ID du bot: {bot.user.id}")
+        logger.info(f"Nombre de guildes: {len(bot.guilds)}")
+        
+        # Vérifier les permissions
+        guild = bot.guilds[0]
+        me = guild.me
+        logger.info(f"Permissions du bot: {me.guild_permissions.value}")
+        
+        # Initialiser le KillTracker
+        await kill_tracker.start_event_monitor(bot)
+        
+        # Démarrer les tâches planifiées
+        update_channel_name_task.start()
+        build_task.start()
+        update_kills_task.start()
+        
+        logger.info("Bot prêt et toutes les tâches démarrées")
+    except Exception as e:
+        logger.error(f"Erreur lors de l'initialisation du bot: {str(e)}")
+        logger.debug(f"Traceback: {traceback.format_exc()}")
+        raise
+    
+    # Faire une première mise à jour immédiate
+    print("Première mise à jour immédiate...")
+    await update_channel_name()
+    print("Première mise à jour terminée")
+
+# --------------------------
+# 15) Tâche de mise à jour des kills
+# --------------------------
+@tasks.loop(seconds=5)  # Mise à jour toutes les 5 secondes
+async def update_kills_task():
+    try:
+        # Mettre à jour les kills
+        await kill_tracker.update_kills(bot)
+        logger.info("Vérification des kills effectuée")
+        
+        # Mettre à jour le tableau dans le salon
+        channel_id = int(os.getenv('KILLS_CHANNEL_ID'))
+        channel = bot.get_channel(channel_id)
+        if channel:
+            stats = await format_kill_stats(kill_tracker)
+            await channel.send(stats)
+        
+    except Exception as e:
+        logger.error(f"Erreur dans la tâche update_kills: {str(e)}")
+        logger.debug(f"Traceback: {traceback.format_exc()}")
+        
+        # En cas d'erreur, attendre 10 secondes avant de réessayer
+        await asyncio.sleep(10)
+        
+        # Réessayer une fois
+        try:
+            logger.info("Réessai après erreur...")
+            await kill_tracker.update_kills(bot)
+            channel_id = int(os.getenv('KILLS_CHANNEL_ID'))
+            channel = bot.get_channel(channel_id)
+            if channel:
+                stats = await format_kill_stats(kill_tracker)
+                await channel.send(stats)
+                logger.info("Réessai réussi")
+        except Exception as e:
+            logger.error(f"Erreur lors du premier réessai: {str(e)}")
+            logger.debug(f"Traceback: {traceback.format_exc()}")
+            
+            # Attendre encore avant le deuxième réessai
+            await asyncio.sleep(10)
+            
+            # Deuxième réessai
+            try:
+                logger.info("Deuxième réessai après erreur...")
+                await kill_tracker.update_kills(bot)
+                logger.info("Deuxième réessai réussi")
+            except Exception as e:
+                logger.error(f"Erreur lors du deuxième réessai: {str(e)}")
+                logger.debug(f"Traceback: {traceback.format_exc()}")
+                logger.error("Arrêt de la tâche après deux échecs")
+                return  # Arrêter la boucle en cas d'échec
+
 bot.run(DISCORD_TOKEN)

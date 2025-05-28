@@ -2,7 +2,7 @@
 New-Item -ItemType Directory -Force -Path "Deploy-files"
 
 # Copier les fichiers nécessaires
-Copy-Item "bot.py", ".env", "database.py", "rcon.py", "ftp_handler.py", "requirements.txt", "bot_conan.service" -Destination "Deploy-files"
+Copy-Item "bot.py","classement.py", ".env", "database.py", "rcon.py", "ftp_handler.py", "requirements.txt", "bot_conan.service", "discord.db" -Destination "Deploy-files"
 
 # Copier le fichier de log s'il existe
 if (Test-Path "bot.log") {
@@ -18,6 +18,8 @@ Write-Host "- rcon.py"
 Write-Host "- ftp_handler.py"
 Write-Host "- requirements.txt"
 Write-Host "- bot_conan.service"
+Write-Host "- discord.db"
+Write-Host "- classement.py"
 if (Test-Path "bot.log") {
     Write-Host "- bot.log"
 }
