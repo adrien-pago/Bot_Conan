@@ -6,9 +6,10 @@ After=network.target
 Type=simple
 User=root
 WorkingDirectory=/root/bot/bot_conan
-ExecStart=/usr/bin/python3 bot.py
+ExecStart=/usr/bin/python3 /root/bot/bot_conan/bot.py
 Restart=always
 RestartSec=10
+Environment=PYTHONUNBUFFERED=1
 
 [Install]
 WantedBy=multi-user.target

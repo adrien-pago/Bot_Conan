@@ -89,51 +89,32 @@ def _load_db_from_bytes(db_bytes: bytes):
         raise
 
 async def update_channel_name():
-    """Met à jour le nom du salon avec le nombre de joueurs"""
+    """Met à jour le nom du salon avec le nombre de joueurs et le statut du raid."""
     try:
         logger.info("Début de la mise à jour du nom du salon...")
-        online = []
-        rcon = None
+        logger.debug("Tentative de connexion RCON...")
+        
+        # Utilisation de wait_for au lieu de timeout
         try:
-            # Récupérer la liste des joueurs en ligne via RCON
-            logger.debug("Tentative de connexion RCON...")
             rcon = RconClient()
-            logger.debug("Configuration RCON :")
-            logger.debug(f"- Host: {rcon.host}")
-            logger.debug(f"- Port: {rcon.port}")
-            logger.debug(f"- Timeout: {rcon.timeout}")
-            
-            # Ajouter un timeout pour la connexion
-            async with asyncio.timeout(10):  # 10 secondes de timeout
-                logger.debug("Connexion RCON établie, récupération des joueurs...")
-                online = rcon.get_online_players()
-                logger.debug(f"Joueurs récupérés : {online}")
-                rcon.close()
-                logger.info(f"Nombre de joueurs en ligne : {len(online)}")
+            players = await asyncio.wait_for(rcon.get_online_players(), timeout=10.0)
+            logger.debug(f"Nombre de joueurs calculé : {len(players)}")
+            rcon.close()
         except asyncio.TimeoutError:
-            logger.error("Timeout lors de la connexion RCON")
-            if rcon:
-                try:
-                    rcon.close()
-                except:
-                    pass
-            online = []
+            logger.warning("Timeout lors de la récupération des joueurs")
+            players = []
         except Exception as e:
             logger.error(f"Erreur RCON : {str(e)}")
             logger.debug(f"Traceback RCON : {traceback.format_exc()}")
-            online = []
-            if rcon:
-                try:
-                    rcon.close()
-                except:
-                    pass
+            logger.warning("Utilisation de la valeur par défaut (0 joueurs) suite à l'échec RCON")
+            players = []
 
         # Si RCON échoue, utiliser une valeur par défaut
-        if not online:
+        if not players:
             logger.warning("Utilisation de la valeur par défaut (0 joueurs) suite à l'échec RCON")
             count = 0
         else:
-            count = len(online)
+            count = len(players)
         logger.debug(f"Nombre de joueurs calculé : {count}")
         
         # Vérifier si c'est le raid time
@@ -295,21 +276,6 @@ async def build_task():
         logger.error(f"Erreur dans la tâche de vérification des constructions: {e}")
         logger.debug(f"Traceback: {traceback.format_exc()}")
 
-@tasks.loop(seconds=5)
-async def update_kills_task():
-    """Tâche planifiée pour mettre à jour le tableau des kills"""
-    try:
-        logger.info("Mise à jour du tableau des kills...")
-        channel = bot.get_channel(KILLS_CHANNEL_ID)
-        if channel:
-            stats = await format_kill_stats(kill_tracker)
-            await channel.purge(limit=1)  # Supprimer les anciens messages
-            await channel.send(stats)
-            logger.debug("Tableau de classement mis à jour")
-    except Exception as e:
-        logger.error(f"Erreur lors de la mise à jour du tableau des kills: {e}")
-        logger.debug(f"Traceback: {traceback.format_exc()}")
-
 # --------------------------
 # 4) Classe KillTracker et initialisation
 # --------------------------
@@ -410,7 +376,14 @@ class KillTracker:
                 # Envoyer le message dans Discord
                 channel = self.bot.get_channel(self.channel_id)
                 if channel:
+                    # Envoyer le message de kill
                     await channel.send(f"**Kill** - {event['killer']} a tué {event['victim']} à {event['timestamp']}")
+                    
+                    # Mettre à jour le tableau de classement
+                    stats = await format_kill_stats(self)
+                    await channel.purge(limit=1)  # Supprimer l'ancien tableau
+                    await channel.send(stats)
+                    killtracker_logger.debug("Tableau de classement mis à jour après kill")
                 
                 # Mettre à jour le timestamp du dernier kill
                 self.last_kill_timestamp = event['timestamp']
@@ -471,7 +444,6 @@ async def on_ready():
         
         # Démarrer la surveillance des kills
         await kill_tracker.start_event_monitor(bot)
-        update_kills_task.start()
         logger.info("KillTracker initialisé et démarré")
 
         logger.info("Bot prêt et toutes les tâches démarrées")
