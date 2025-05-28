@@ -234,7 +234,7 @@ class RconClient:
             while True:
                 try:
                     # Récupérer les derniers logs
-                    logs = self.execute("getlastlog")
+                    logs = await self.execute("getlastlog")
                     
                     # Analyser les logs pour détecter les kills
                     for line in logs.splitlines():
