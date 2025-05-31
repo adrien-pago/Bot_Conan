@@ -4,8 +4,11 @@ import os
 from dotenv import load_dotenv
 import tempfile
 import uuid
+import logging
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 # --------------------------
 # 1) Charger les créer un fichier temporaire
@@ -185,3 +188,68 @@ class DatabaseManager:
         except Exception as e:
             print(f"❌ Erreur dans get_clans_and_players: {e}")
             return []
+
+    def get_player_stats(self, ftp_handler):
+        """Récupère les statistiques des joueurs depuis la base de données du jeu"""
+        temp_db_path = None
+        conn = None
+        try:
+            # Utiliser le chemin depuis les variables d'environnement
+            game_db_path = os.getenv('FTP_DB_PATH')
+            if not game_db_path:
+                logger.error("FTP_DB_PATH non défini dans les variables d'environnement")
+                return []
+            
+            # Lire la base de données depuis le FTP
+            db_bytes = ftp_handler.read_database(game_db_path)
+            if not db_bytes:
+                logger.error("Impossible de lire la base de données du jeu")
+                return []
+            
+            # Écrire la base de données dans un fichier temporaire
+            temp_db_path = _load_db_from_bytes(db_bytes)
+            
+            # Se connecter à la base de données
+            conn = sqlite3.connect(temp_db_path)
+            cursor = conn.cursor()
+            
+            # Requête pour obtenir les statistiques des joueurs
+            cursor.execute("""
+                SELECT 
+                    id,
+                    char_name,
+                    level,
+                    rank,
+                    guild,
+                    isAlive,
+                    killerName,
+                    lastTimeOnline,
+                    killerId,
+                    lastServerTimeOnline
+                FROM characters
+                WHERE isAlive IS NOT NULL
+                ORDER BY lastTimeOnline DESC
+            """)
+            
+            stats = cursor.fetchall()
+            cursor.close()
+            
+            return stats
+            
+        except Exception as e:
+            logger.error(f"Erreur lors de la récupération des stats: {str(e)}")
+            return []
+        finally:
+            # Fermer la connexion
+            if conn:
+                try:
+                    conn.close()
+                except Exception as e:
+                    logger.error(f"Erreur lors de la fermeture de la connexion: {str(e)}")
+            
+            # Supprimer le fichier temporaire
+            if temp_db_path and os.path.exists(temp_db_path):
+                try:
+                    os.remove(temp_db_path)
+                except Exception as e:
+                    logger.error(f"Erreur lors de la suppression du fichier temporaire: {str(e)}")

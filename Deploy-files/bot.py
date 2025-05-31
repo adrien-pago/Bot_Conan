@@ -292,24 +292,25 @@ async def format_kill_stats(kill_tracker):
             return """```
 Classement des joueurs
 
-Player     | Kills | Deaths | Ratio
------------------------------------
+Player     | Clan          | Kills | Deaths | Ratio
+----------------------------------------------
 Aucun joueur enregistré
 ```"""
 
         message = """```
 Classement des joueurs
 
-Player     | Kills | Deaths | Ratio
------------------------------------
+Player     | Clan          | Kills | Deaths | Ratio
+----------------------------------------------
 """
 
         for stat in stats:
             player_name = stat['player_name'][:10].ljust(10)
+            clan = (stat['clan'] or "Sans clan")[:12].ljust(12)
             kills = str(stat['kills']).rjust(5)
             deaths = str(stat['deaths']).rjust(6)
             ratio = str(stat['ratio']).rjust(5)
-            message += f"{player_name} | {kills} | {deaths} | {ratio}\n"
+            message += f"{player_name} | {clan} | {kills} | {deaths} | {ratio}\n"
 
         message += "```"
         return message
@@ -319,96 +320,129 @@ Player     | Kills | Deaths | Ratio
         return f"Erreur: {str(e)}"
 
 class KillTracker:
-    def __init__(self, channel_id: int):
+    def __init__(self, channel_id: int, rcon_client):
         self.channel_id = channel_id
+        self.rcon = rcon_client
+        self.monitoring = False
+        self.bot = None
+        self.update_task = None
         self.classement_manager = ClassementManager()
-        self.rcon = None
-        self.event_task = None
-        self.last_kill_timestamp = None
-        killtracker_logger.debug(f"KillTracker initialisé avec channel_id: {channel_id}")
+        self.database = DatabaseManager()
+        self.last_message = None  # Pour stocker le dernier message envoyé
 
-    async def start_event_monitor(self, bot):
-        """Démarre la surveillance des événements du jeu"""
-        try:
-            self.bot = bot
-            self.monitoring = True
-            killtracker_logger.info("Démarrage de la surveillance des événements")
-            
-            # Établir la connexion RCON
-            self.rcon = RconClient()
-            await self.rcon.initialize()  # Initialisation asynchrone
-            self.rcon.add_event_callback(self.handle_kill_event)
-            
-            # Démarrer la tâche de surveillance
-            self.event_task = asyncio.create_task(self.monitor_events())
-            killtracker_logger.info("Tâche de surveillance des événements démarrée")
-            
-        except Exception as e:
-            killtracker_logger.error(f"Erreur lors du démarrage de la surveillance: {str(e)}")
-            killtracker_logger.debug(f"Traceback: {traceback.format_exc()}")
-            raise
-
-    async def monitor_events(self):
-        """Boucle de surveillance des événements"""
+    async def start_monitoring(self, bot):
+        """Démarre la surveillance des statistiques"""
+        self.bot = bot
+        self.monitoring = True
+        
+        # Forcer une mise à jour immédiate
+        await self._update_stats()
+        
+        # Mettre à jour les stats toutes les minutes
+        self.update_task = asyncio.create_task(self._periodic_update())
+        
+    async def _periodic_update(self):
         while self.monitoring:
             try:
-                await self.rcon.monitor_events()
+                await self._update_stats()
+                await asyncio.sleep(60)  # 1 minute
             except Exception as e:
-                killtracker_logger.error(f"Erreur dans la surveillance des événements: {str(e)}")
-                await asyncio.sleep(5)
-                continue
+                logger.error(f"Erreur dans la mise à jour périodique: {str(e)}")
+                await asyncio.sleep(60)  # Attendre 1 minute en cas d'erreur
 
-    async def handle_kill_event(self, event):
-        """Gère les événements de kill"""
-        if event['type'] == 'kill':
+    async def _update_stats(self):
+        """Met à jour les statistiques depuis game.db"""
+        try:
+            # Récupérer les stats depuis game.db
+            stats = self.database.get_player_stats(ftp_handler)
+            
+            if not stats:
+                logger.error("Aucune statistique récupérée de game.db")
+                return
+                
+            logger.info(f"Récupération de {len(stats)} joueurs depuis game.db")
+            
+            # Mettre à jour la base de données locale
+            for player_data in stats:
+                self.classement_manager.update_from_game_db(player_data)
+            
+            # Mettre à jour l'affichage Discord
+            await self._update_discord_channel()
+            
+        except Exception as e:
+            logger.error(f"Erreur lors de la mise à jour des stats: {str(e)}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
+
+    async def _update_discord_channel(self):
+        """Met à jour le canal Discord avec le classement"""
+        try:
+            channel = self.bot.get_channel(int(self.channel_id))
+            if channel is None:
+                logger.error(f"Canal Discord {self.channel_id} non trouvé")
+                return
+
+            # Supprimer tous les messages du canal
             try:
-                killtracker_logger.debug(f"Nouvel événement kill reçu: {event}")
-                
-                # Vérifier si c'est un kill déjà traité
-                if self.last_kill_timestamp and event['timestamp'] <= self.last_kill_timestamp:
-                    return
-
-                # Mettre à jour la base de données locale
-                self.classement_manager.update_kill_stats(
-                    event['victim'],
-                    event['killer'],
-                    True
-                )
-                
-                # Envoyer le message dans Discord
-                channel = self.bot.get_channel(self.channel_id)
-                if channel:
-                    # Envoyer le message de kill
-                    await channel.send(f"**Kill** - {event['killer']} a tué {event['victim']} à {event['timestamp']}")
-                    
-                    # Mettre à jour le tableau de classement
-                    stats = await format_kill_stats(self)
-                    await channel.purge(limit=1)  # Supprimer l'ancien tableau
-                    await channel.send(stats)
-                    killtracker_logger.debug("Tableau de classement mis à jour après kill")
-                
-                # Mettre à jour le timestamp du dernier kill
-                self.last_kill_timestamp = event['timestamp']
-                
+                await channel.purge(limit=100)  # Supprimer les 100 derniers messages
+                logger.info("Canal nettoyé avec succès")
             except Exception as e:
-                killtracker_logger.error(f"Erreur lors de la gestion de l'événement kill: {str(e)}")
+                logger.error(f"Erreur lors du nettoyage du canal: {str(e)}")
 
-    async def stop_event_monitor(self):
-        """Arrêter la surveillance des événements"""
+            # Récupérer les stats
+            stats = self.classement_manager.get_kill_stats()
+            
+            if not stats:
+                logger.warning("Aucune statistique trouvée dans la base de données locale")
+                return
+            
+            # Construire les messages
+            messages = []
+            current_message = "```\nClassement des 30 meilleurs joueurs\n\n"
+            current_message += "Rang | Nom          | Kills\n"
+            current_message += "-------------------------\n"
+            
+            for i, stat in enumerate(stats, 1):
+                rank = str(i).rjust(3)
+                name = stat['player_name'][:12].ljust(12)
+                kills = str(stat['kills']).rjust(5)
+                line = f"{rank} | {name} | {kills}\n"
+                
+                # Si le message dépasse 1900 caractères, on le coupe
+                if len(current_message) + len(line) > 1900:
+                    current_message += "```"
+                    messages.append(current_message)
+                    current_message = "```\nClassement des 30 meilleurs joueurs (suite)\n\n"
+                    current_message += "Rang | Nom          | Kills\n"
+                    current_message += "-------------------------\n"
+                
+                current_message += line
+            
+            # Ajouter le dernier message s'il n'est pas vide
+            if current_message:
+                current_message += "```"
+                messages.append(current_message)
+            
+            # Envoyer les messages
+            for message in messages:
+                await channel.send(message)
+                await asyncio.sleep(1)  # Attendre 1 seconde entre chaque message
+            
+        except Exception as e:
+            logger.error(f"Erreur lors de la mise à jour du canal Discord: {str(e)}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
+
+    async def stop_monitoring(self):
+        """Arrête la surveillance des statistiques"""
         self.monitoring = False
-        if self.event_task:
-            self.event_task.cancel()
+        if self.update_task:
+            self.update_task.cancel()
             try:
-                await self.event_task
+                await self.update_task
             except asyncio.CancelledError:
                 pass
-            self.event_task = None
-        if self.rcon:
-            self.rcon.close()
-            self.rcon = None
 
 # Initialiser le KillTracker
-kill_tracker = KillTracker(os.getenv('KILLS_CHANNEL_ID'))
+kill_tracker = KillTracker(os.getenv('KILLS_CHANNEL_ID'), RconClient())
 
 # --------------------------
 # 5) on_ready
@@ -436,16 +470,8 @@ async def on_ready():
 
         # Initialiser le KillTracker
         logger.info("Initialisation du KillTracker...")
-        # Créer d'abord le tableau vide
-        channel = bot.get_channel(KILLS_CHANNEL_ID)
-        if channel:
-            stats = await format_kill_stats(kill_tracker)
-            await channel.purge(limit=1)  # Supprimer les anciens messages
-            await channel.send(stats)
-            logger.info("Tableau de classement initial créé")
-        
         # Démarrer la surveillance des kills
-        await kill_tracker.start_event_monitor(bot)
+        await kill_tracker.start_monitoring(bot)
         logger.info("KillTracker initialisé et démarré")
 
         logger.info("Bot prêt et toutes les tâches démarrées")
