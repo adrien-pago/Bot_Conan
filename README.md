@@ -1,37 +1,54 @@
-# Bot Discord Conan
+# Bot Conan Exiles
 
-Ce bot Discord est conçu pour intéragir avec un serveur Conan Exiles. Il permet de :
-- Afficher le nombre de joueurs en ligne
-- Gérer les constructions des clans
-- Mettre à jour automatiquement un salon avec les informations du serveur
+Un bot Discord pour gérer et surveiller un serveur Conan Exiles.
 
-## Configuration
+## Fonctionnalités
 
-1. Installez les dépendances :
+- Suivi des kills et des morts des joueurs
+- Suivi des constructions en cours
+- Suivi des joueurs connectés
+- Suivi des clans et de leurs statistiques
+- Commandes Discord pour interagir avec le serveur
+- Notifications automatiques pour les événements importants
+
+## Installation
+
+1. Clonez le dépôt :
+```bash
+git clone https://github.com/votre-username/Bot_Conan.git
+cd Bot_Conan
+```
+
+2. Installez les dépendances :
 ```bash
 pip install -r requirements.txt
 ```
 
-2. Configurez le fichier `.env` avec vos informations :
-- `DISCORD_TOKEN` : Token de votre bot Discord
-- `GAME_SERVER_HOST` : Adresse du serveur Conan Exiles
-- `RCON_PORT` : Port RCON du serveur
-- `RCON_PASSWORD` : Mot de passe RCON
-- `TEST_CHANNEL_ID` : ID du salon Discord à mettre à jour
+3. Créez un fichier `.env` à la racine du projet avec les variables suivantes :
+```env
+# Discord
+DISCORD_TOKEN=votre_token_discord
+PLAYER_CHANNEL_ID=id_du_canal_joueurs
+KILL_CHANNEL_ID=id_du_canal_kills
+BUILD_CHANNEL_ID=id_du_canal_constructions
+CLAN_CHANNEL_ID=id_du_canal_clans
 
-## Commandes Discord disponibles
+# FTP
+FTP_HOST=adresse_du_serveur_ftp
+FTP_USER=utilisateur_ftp
+FTP_PASSWORD=mot_de_passe_ftp
+FTP_DB_PATH=chemin_vers_la_base_de_donnees
 
-- `!build` : Affiche les informations sur les constructions des clans
+# RCON
+RCON_HOST=adresse_du_serveur_rcon
+RCON_PORT=port_rcon
+RCON_PASSWORD=mot_de_passe_rcon
+```
 
-## Structure du projet
-
-- `bot.py` : Le bot principal
-- `rcon.py` : Gestionnaire de connexion RCON
-- `database.py` : Gestionnaire de la base de données SQLite
-- `ftp_handler.py` : Gestionnaire de connexion FTP
-- `.env` : Configuration des variables d'environnement
-- `requirements.txt` : Dépendances du projet
-- `bot_conan.service` : Fichier de service systemd pour le déploiement
+4. Lancez le bot :
+```bash
+python bot.py
+```
 
 ## Déploiement sur VPS
 
@@ -86,10 +103,59 @@ systemctl stop bot_conan
 journalctl -u bot_conan -f
 ```
 
+## Structure du Projet
+
+```
+Bot_Conan/
+├── bot.py                    # Point d'entrée principal
+├── config/
+│   ├── settings.py          # Configuration
+│   └── logging_config.py    # Configuration des logs
+├── core/
+│   ├── bot_core.py          # Classe principale du bot
+│   └── commands.py          # Gestion des commandes Discord
+├── features/
+│   ├── build_tracker.py     # Suivi des constructions
+│   ├── kill_tracker.py      # Suivi des kills
+│   ├── player_tracker.py    # Suivi des joueurs
+│   └── clan_tracker.py      # Suivi des clans
+├── database/
+│   └── database_manager.py  # Gestion de la base de données
+├── utils/
+│   ├── rcon_client.py       # Client RCON
+│   ├── ftp_handler.py       # Gestion FTP
+│   └── helpers.py           # Fonctions utilitaires
+└── requirements.txt
+```
+
+## Commandes Discord
+
+- `!aide` : Affiche l'aide pour les commandes disponibles
+- `!stats` : Affiche les statistiques de kills
+- `!builds` : Affiche les constructions en cours
+- `!players` : Affiche la liste des joueurs connectés
+- `!clans` : Affiche les statistiques des clans
+
+## Fonctionnalités Automatiques
+
+- Mise à jour automatique du nom du canal avec le nombre de joueurs connectés
+- Notifications des nouveaux kills
+- Notifications des constructions terminées
+- Suivi de l'activité des joueurs et des clans
+- Sauvegarde automatique des statistiques
+
 ## Sécurité
 
 - Ne partagez jamais votre fichier `.env`
 - Assurez-vous que votre token Discord est sécurisé
 - Utilisez des mots de passe forts pour le RCON
 - Le fichier `.env` est ignoré par git (dans .gitignore)
+
+## Contribution
+
+Les contributions sont les bienvenues ! N'hésitez pas à ouvrir une issue ou à soumettre une pull request.
+
+## Licence
+
+Ce projet est sous licence MIT. Voir le fichier `LICENSE` pour plus de détails.
 
