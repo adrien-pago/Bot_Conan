@@ -1,131 +1,99 @@
 import logging
 import asyncio
-from datetime import datetime
-from config.logging_config import setup_logging
-from database.database_manager import DatabaseManager
 import discord
+import sys
+import os
 
-logger = setup_logging()
+# Ajouter le répertoire parent au PYTHONPATH
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from utils.rcon_client import RCONClient
+
+logger = logging.getLogger(__name__)
 
 class PlayerTracker:
-    def __init__(self, bot):
+    def __init__(self, bot, channel_id, rcon_client):
         self.bot = bot
-        self.db = DatabaseManager()
+        self.channel_id = channel_id
+        self.rcon_client = rcon_client
         self.is_running = False
-        self.last_player_count = 0
-        
+        self.check_interval = 60
+        self.channel = None
+
     async def start(self):
-        """Démarre le suivi des joueurs"""
+        if not self.bot.is_ready():
+            await asyncio.sleep(5)
+            if not self.bot.is_ready():
+                return False
+
+        logger.info(f"Récupération du canal {self.channel_id}")
+        self.channel = self.bot.get_channel(self.channel_id)
+        if not self.channel:
+            logger.error(f"Canal {self.channel_id} non trouvé")
+            return False
+
+        logger.info(f"Canal trouvé : {self.channel.name}")
         self.is_running = True
-        logger.info("PlayerTracker démarré")
         
+        while self.is_running:
+            try:
+                await self.check_players()
+                await asyncio.sleep(self.check_interval)
+            except Exception as e:
+                logger.error(f"Erreur: {e}")
+                await asyncio.sleep(5)
+
     async def stop(self):
-        """Arrête le suivi des joueurs"""
         self.is_running = False
-        logger.info("PlayerTracker arrêté")
-        
-    async def update_channel_name(self):
-        """Met à jour le nom du salon avec le nombre de joueurs"""
+
+    async def check_players(self):
         try:
-            # Récupérer le nombre de joueurs connectés
-            online_players = await self.db.get_online_players()
-            player_count = len(online_players)
-            
-            # Mettre à jour le nom du salon si le nombre a changé
-            if player_count != self.last_player_count:
-                channel = self.bot.get_channel(PLAYER_CHANNEL_ID)
-                if channel:
-                    await channel.edit(name=f"👥 Joueurs: {player_count}")
-                    self.last_player_count = player_count
-                    
-        except Exception as e:
-            logger.error(f"Erreur lors de la mise à jour du nom du salon: {e}")
-            
-    async def get_online_players(self):
-        """Récupère la liste des joueurs connectés"""
-        try:
-            players = await self.db.get_online_players()
-            return [{
-                'name': player['char_name'],
-                'level': player['level'],
-                'clan': player['guild'] or "Sans clan"
-            } for player in players]
-        except Exception as e:
-            logger.error(f"Erreur lors de la récupération des joueurs connectés: {e}")
-            return []
-            
-    async def get_player_stats(self, player_name):
-        """Récupère les statistiques d'un joueur"""
-        try:
-            stats = await self.db.get_player_stats(player_name)
-            if stats:
-                return {
-                    'name': stats['char_name'],
-                    'level': stats['level'],
-                    'clan': stats['guild'] or "Sans clan",
-                    'last_seen': stats['lastTimeOnline'],
-                    'is_alive': stats['isAlive']
-                }
-            return None
-        except Exception as e:
-            logger.error(f"Erreur lors de la récupération des stats du joueur {player_name}: {e}")
-            return None
-            
-    async def update_player_status(self, player_data):
-        """Met à jour le statut d'un joueur"""
-        try:
-            await self.db.update_player_status(player_data)
-            
-            # Vérifier si le joueur vient de se connecter
-            if player_data.get('isOnline') and not player_data.get('wasOnline'):
-                channel = self.bot.get_channel(PLAYER_CHANNEL_ID)
-                if channel:
-                    embed = discord.Embed(
-                        title="👋 Nouveau joueur connecté",
-                        description=f"{player_data['char_name']} vient de se connecter !",
-                        color=discord.Color.green()
-                    )
-                    embed.add_field(name="Niveau", value=str(player_data['level']))
-                    if player_data.get('guild'):
-                        embed.add_field(name="Clan", value=player_data['guild'])
-                    await channel.send(embed=embed)
-                    
-        except Exception as e:
-            logger.error(f"Erreur lors de la mise à jour du statut du joueur {player_data.get('char_name')}: {e}")
-            
-    async def check_player_activity(self):
-        """Vérifie l'activité des joueurs"""
-        try:
-            players = await self.db.get_all_players()
-            current_time = datetime.now()
-            
-            for player in players:
-                last_seen = player['lastTimeOnline']
-                if last_seen:
-                    time_diff = current_time - last_seen
-                    
-                    # Si le joueur est inactif depuis plus de 24h
-                    if time_diff.days >= 1:
-                        await self._handle_inactive_player(player)
-                        
-        except Exception as e:
-            logger.error(f"Erreur lors de la vérification de l'activité des joueurs: {e}")
-            
-    async def _handle_inactive_player(self, player):
-        """Gère un joueur inactif"""
-        try:
-            # Marquer le joueur comme inactif dans la base de données
-            await self.db.mark_player_inactive(player['id'])
-            
-            # Notifier le canal Discord
-            channel = self.bot.get_channel(PLAYER_CHANNEL_ID)
-            if channel:
-                embed = discord.Embed(
-                    title="⏰ Joueur inactif",
-                    description=f"{player['char_name']} n'a pas été vu depuis plus de 24h",
-                    color=discord.Color.orange()
-                )
-                await channel.send(embed=embed)
+            # Récupérer la liste des joueurs
+            players = await self.rcon_client.get_player_list()
+            print(f"DEBUG - Type renvoyé par get_player_list() : {type(players)}")
+            print(f"DEBUG - Liste des joueurs reçue : {players}")
+
+            # Calculer le nombre de joueurs
+            player_count = len(players)
+            print(f"DEBUG - Nombre de joueurs calculé : {player_count}")
+
+            # Mettre à jour le nom du canal
+            if self.channel:
+                new_name = f"🟢【{player_count}︱40】raid-on"
+                print(f"DEBUG - Nouveau nom du canal : {new_name}")
+                await self.channel.edit(name=new_name)
                 
         except Exception as e:
-            logger.error(f"Erreur lors du traitement du joueur inactif {player['char_name']}: {e}") 
+            print(f"DEBUG - Erreur dans check_players() : {e}")
+
+if __name__ == "__main__":
+    # Configuration du logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    
+    # Test simple de la classe
+    async def test_tracker():
+        try:
+            # Créer une instance de RCONClient avec des valeurs de test
+            rcon_client = RCONClient(
+                host="localhost",
+                port=28316,
+                password="test_password"
+            )
+            
+            # Créer une instance de test du tracker
+            tracker = PlayerTracker(None, 123456789, rcon_client)
+            logger.info("Test du tracker de joueurs")
+            
+            # Tester les méthodes de base
+            await tracker.start()
+            await asyncio.sleep(5)  # Attendre 5 secondes
+            await tracker.stop()
+            
+        except Exception as e:
+            logger.error(f"Erreur lors du test: {e}")
+    
+    # Exécuter le test
+    asyncio.run(test_tracker()) 
