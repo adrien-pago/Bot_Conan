@@ -210,5 +210,12 @@ async def starterpack_command(ctx):
     finally:
         conn.close()
 
+@bot.command(name='build')
+async def build_command(ctx):
+    """Commande !build pour afficher le nombre de pièces de construction"""
+    await bot.build_tracker._check_buildings()
+    # Mettre à jour le timestamp du dernier build
+    bot.item_manager.set_last_build_time()
+
 # Lancer le bot
 bot.run(DISCORD_TOKEN) 

@@ -7,10 +7,32 @@ from config.settings import *
 from dotenv import load_dotenv
 from io import BytesIO
 import threading
+import shutil
 
 load_dotenv()
 
 logger = setup_logging()
+
+def clear_cache():
+    """Vide le cache du bot"""
+    try:
+        # Vider le dossier temp
+        temp_dir = tempfile.gettempdir()
+        print(f"\nNettoyage du dossier temp : {temp_dir}")
+        
+        # Lister tous les fichiers qui commencent par "conan_db_"
+        for file in os.listdir(temp_dir):
+            if file.startswith("conan_db_"):
+                file_path = os.path.join(temp_dir, file)
+                try:
+                    os.remove(file_path)
+                    print(f"✅ Fichier supprimé : {file}")
+                except Exception as e:
+                    print(f"❌ Erreur lors de la suppression de {file} : {e}")
+
+        print("✅ Cache vidé avec succès")
+    except Exception as e:
+        print(f"❌ Erreur lors du nettoyage du cache : {e}")
 
 class FTPHandler:
     def __init__(self):
@@ -28,6 +50,7 @@ class FTPHandler:
         self.max_retries = 3
         self.retry_delay = 5  # secondes
         self._lock = threading.Lock()
+        self.timeout = 300  # 5 minutes
 
     def _connect(self):
         """Établit la connexion FTP avec gestion des erreurs"""
@@ -41,7 +64,7 @@ class FTPHandler:
                             pass
                     
                     self.ftp = ftplib.FTP()
-                    self.ftp.connect(self.host, self.port, timeout=10)
+                    self.ftp.connect(self.host, self.port, timeout=self.timeout)
                     self.ftp.login(self.user, self.password)
                     logger.info("Connexion FTP établie avec succès")
                     return
@@ -75,47 +98,54 @@ class FTPHandler:
             logger.error(f"❌ Erreur download_file: {e}")
             return False
 
-    def read_database(self, file_path):
-        """Lit un fichier de la base de données via FTP"""
+    def read_database(self, remote_path: str) -> bytes:
+        """Lire directement la base de données depuis le FTP sans la sauvegarder"""
         try:
-            # Se connecter au serveur FTP
             self._connect()
-            
-            # Créer un buffer en mémoire pour stocker les données
-            buffer = BytesIO()
-            
-            # Télécharger le fichier
-            self.ftp.retrbinary(f'RETR {file_path}', buffer.write)
-            
-            # Retourner le contenu du buffer
-            return buffer.getvalue()
-            
-        except Exception as e:
-            logger.error(f"Erreur lors de la lecture de la base de données: {e}")
-            return None
-        finally:
-            self.close()
+            # Créer un fichier temporaire
+            temp = tempfile.NamedTemporaryFile(delete=False)
+            temp_path = temp.name
+            temp.close()
 
-    def write_database(self, file_path, data):
-        """Écrit un fichier dans la base de données via FTP"""
-        try:
-            # Se connecter au serveur FTP
-            self._connect()
-            
-            # Créer un buffer en mémoire avec les données
-            buffer = BytesIO(data)
-            
-            # Envoyer le fichier avec storbinary
-            self.ftp.storbinary(f'STOR {file_path}', buffer)
-            
-            logger.info(f"Fichier {file_path} écrit avec succès")
-            return True
-            
+            # Télécharger le fichier
+            with open(temp_path, 'wb') as f:
+                self.ftp.retrbinary(f'RETR {remote_path}', f.write)
+            self.ftp.quit()
+
+            # Lire le fichier
+            with open(temp_path, 'rb') as f:
+                data = f.read()
+
+            # Nettoyer
+            os.remove(temp_path)
+            return data
+
         except Exception as e:
-            logger.error(f"Erreur lors de l'écriture de la base de données: {e}")
+            logger.error(f"❌ Erreur lecture base de données: {e}")
+            return None
+
+    def write_database(self, remote_path: str, data: bytes) -> bool:
+        """Écrire directement la base de données sur le FTP"""
+        try:
+            # Créer un fichier temporaire
+            temp = tempfile.NamedTemporaryFile(delete=False)
+            temp_path = temp.name
+            temp.close()
+
+            # Écrire les données dans le fichier temporaire
+            with open(temp_path, 'wb') as f:
+                f.write(data)
+
+            # Upload du fichier
+            success = self.upload_file(temp_path, remote_path)
+
+            # Nettoyer
+            os.remove(temp_path)
+            return success
+
+        except Exception as e:
+            logger.error(f"❌ Erreur écriture base de données: {e}")
             return False
-        finally:
-            self.close()
 
     def get_directory_structure(self, path: str = '/') -> dict:
         """Récupère la structure des répertoires"""
@@ -155,12 +185,13 @@ class FTPHandler:
         try:
             self._connect()
             with open(local_path, 'rb') as f:
-                self.ftp.storbinary(f'STOR {remote_path}', f)
+                # Augmenter la taille du buffer pour l'upload
+                self.ftp.storbinary(f'STOR {remote_path}', f, blocksize=8192)
             self.ftp.quit()
             logger.info(f"Fichier {local_path} envoyé avec succès")
             return True
         except Exception as e:
-            logger.error(f"Erreur lors de l'envoi du fichier {local_path}: {e}")
+            logger.error(f"❌ Erreur upload_file: {e}")
             return False
             
     def list_files(self, remote_path='.'):
