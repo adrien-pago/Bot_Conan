@@ -1,300 +1,137 @@
+# rcon.py
+
+import socket, struct, os, threading
+from dotenv import load_dotenv
 import logging
 import asyncio
-import socket
-import struct
-import json
-from config.logging_config import setup_logging
-from config.settings import *
-from datetime import datetime
+import time
 
-# Configuration du logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+# Utiliser le logger configuré dans bot.py
+logger = logging.getLogger(__name__)
+
+load_dotenv()
+
+# Utiliser le logger configuré dans bot.py
+logger = logging.getLogger(__name__)
+
+load_dotenv()
+
+# Utiliser le logger configuré dans bot.py
 logger = logging.getLogger(__name__)
 
 class RCONClient:
-    def __init__(self, host: str, port: int, password: str):
-        """Initialise le client RCON"""
-        self.host = host
-        self.port = port
-        self.password = password
-        self.connected = False
-        self.retry_count = 0
-        self.max_retries = 3
-        self.retry_delay = 5  # secondes
-        self.reader = None
-        self.writer = None
-        logger.info(f"Client RCON initialisé pour {host}:{port}")
-        
-    async def connect(self):
-        """Établit la connexion RCON"""
-        try:
-            if self.connected:
-                logger.info("Déjà connecté au serveur RCON")
-                return True
-
-            logger.info(f"Tentative de connexion à {self.host}:{self.port}")
-            self.reader, self.writer = await asyncio.open_connection(self.host, self.port)
-            logger.info("Connexion TCP établie")
-            
-            # Envoyer le paquet d'authentification
-            logger.info("Envoi du paquet d'authentification...")
-            await self._send_packet(3, self.password)
-            logger.info("Paquet d'authentification envoyé")
-            
-            # Lire la réponse
-            logger.info("Attente de la réponse d'authentification...")
-            response = await self._read_packet()
-            if response:
-                logger.info(f"Réponse reçue: ID={response['id']}, Type={response['type']}, Payload={response['payload']}")
-                if response['payload'] == "Authenticated.":
-                    self.connected = True
-                    self.retry_count = 0
-                    logger.info("Connexion RCON établie avec succès")
-                    return True
-                else:
-                    logger.error(f"Échec de l'authentification: {response['payload']}")
-            else:
-                logger.error("Pas de réponse du serveur")
-                
-            await self.disconnect()
-            return False
-            
-        except Exception as e:
-            logger.error(f"Erreur lors de la connexion RCON: {e}")
-            await self.disconnect()
-            if self.retry_count < self.max_retries:
-                self.retry_count += 1
-                logger.info(f"Tentative de reconnexion {self.retry_count}/{self.max_retries} dans {self.retry_delay} secondes...")
-                await asyncio.sleep(self.retry_delay)
-                return await self.connect()
-            else:
-                logger.error("Nombre maximum de tentatives de connexion atteint")
-                return False
-            
-    async def disconnect(self):
-        """Ferme la connexion RCON"""
-        if self.writer:
-            logger.info("Fermeture de la connexion RCON")
-            self.writer.close()
-            await self.writer.wait_closed()
-        self.reader = None
-        self.writer = None
+    DEFAULT_TIMEOUT = 10.0  # Timeout par défaut en secondes
+    
+    def __init__(self, timeout: float = None, max_retries: int = 3):
+        self.host = os.getenv('GAME_SERVER_HOST')
+        self.port = int(os.getenv('RCON_PORT'))
+        self.password = os.getenv('RCON_PASSWORD')
+        self.max_retries = max_retries
+        self.retries = 0
+        self.sock = None
+        self.event_callbacks = []  # Liste des callbacks pour les événements
         self.connected = False
         
-    async def _send_packet(self, packet_type: int, payload: str):
-        if not self.writer:
-            raise ConnectionError("Non connecté au serveur RCON")
-
-        # Construire le paquet RCON
-        payload_bytes = payload.encode('utf-8')
-        packet_size = len(payload_bytes) + 10  # 10 = taille de l'en-tête (4 + 4 + 2)
+        # Vérifier que les variables d'environnement sont définies
+        if not self.host:
+            raise ValueError("GAME_SERVER_HOST n'est pas défini dans .env")
+        if not self.port:
+            raise ValueError("RCON_PORT n'est pas défini dans .env")
+        if not self.password:
+            raise ValueError("RCON_PASSWORD n'est pas défini dans .env")
         
-        # Format du paquet: [taille totale][ID][type][payload][\0\0]
-        packet = struct.pack('<ii', packet_size, 0)  # ID de requête = 0
-        packet += struct.pack('<i', packet_type)
-        packet += payload_bytes
-        packet += b'\x00\x00'
+        # Utiliser le timeout par défaut si aucun n'est fourni
+        self.timeout = timeout or self.DEFAULT_TIMEOUT
+        
+        # Initialiser la connexion
+        self._connect()
 
-        # Envoyer le paquet
-        logger.debug(f"Envoi du paquet: Type={packet_type}, Taille={packet_size}, Payload={payload}")
-        self.writer.write(packet)
-        await self.writer.drain()
-
-    async def _read_packet(self):
-        if not self.reader:
-            raise ConnectionError("Non connecté au serveur RCON")
-
+    def _connect(self):
+        """Tente de se connecter au serveur RCON avec gestion des reconnexions"""
         try:
-            # Lire la taille du paquet
-            size_data = await self.reader.read(4)
-            if not size_data:
-                logger.error("Fin de la connexion lors de la lecture de la taille")
-                return None
-                
-            size = struct.unpack('<i', size_data)[0]
-            logger.debug(f"Taille du paquet reçu: {size}")
-
-            # Lire le reste du paquet
-            packet_data = await self.reader.read(size)
-            if not packet_data:
-                logger.error("Fin de la connexion lors de la lecture du paquet")
-                return None
-
-            # Décoder le paquet
-            request_id = struct.unpack('<i', packet_data[:4])[0]
-            packet_type = struct.unpack('<i', packet_data[4:8])[0]
-            payload = packet_data[8:-2].decode('utf-8')  # -2 pour enlever les deux octets nuls de fin
-
-            logger.debug(f"Paquet reçu: ID={request_id}, Type={packet_type}, Payload={payload}")
-            return {
-                'id': request_id,
-                'type': packet_type,
-                'payload': payload
-            }
-        except Exception as e:
-            logger.error(f"Erreur lors de la lecture du paquet RCON: {e}")
-            return None
-
-    async def send_command(self, command: str):
-        """Envoie une commande RCON"""
-        if not self.connected:
-            logger.info("Non connecté, tentative de connexion...")
-            if not await self.connect():
-                return None
-
-        try:
-            logger.info(f"Envoi de la commande: {command}")
-            await self._send_packet(2, command)  # Type 2 = commande
+            if self.sock:
+                try:
+                    self.sock.close()
+                except:
+                    pass
+                self.sock = None
             
-            # Lire toutes les réponses jusqu'à ce qu'on reçoive une réponse vide
-            full_response = []
-            while True:
-                response = await self._read_packet()
-                if not response:
-                    break
-                    
-                logger.info(f"Réponse reçue: Type={response['type']}, Payload={response['payload']}")
-                
-                # Type 0 = réponse normale, Type 2 = réponse de commande
-                if response['type'] in [0, 2]:
-                    if response['payload']:
-                        full_response.append(response['payload'])
-                    if not response['payload']:  # Réponse vide = fin de la réponse
-                        break
-                else:
-                    logger.error(f"Type de réponse inattendu: {response['type']}")
-                    break
+            # Vérifier la connexion avant de continuer
+            if not self.sock:
+                self.sock = socket.create_connection((self.host, self.port), self.timeout)
             
-            if full_response:
-                return '\n'.join(full_response)
-            return None
+            # Authentification
+            if not self._auth():
+                raise RuntimeError("Authentification RCON échouée")
             
-        except Exception as e:
-            logger.error(f"Erreur lors de l'envoi de la commande RCON: {e}")
+            self.retries = 0
+            self.connected = True
+            logger.info(f"Connexion RCON réussie après {self.retries} tentatives")
+            
+        except (socket.timeout, ConnectionRefusedError, ConnectionResetError, BrokenPipeError) as e:
             self.connected = False
-            return None
-            
-    async def get_player_list(self):
-        """Récupère la liste des joueurs connectés"""
-        try:
-            response = await self.send_command("listplayers")
-            if not response:
-                return []
+            if self.retries < self.max_retries:
+                self.retries += 1
+                logger.warning(f"Échec de la connexion RCON (tentative {self.retries}/{self.max_retries}): {str(e)}")
+                time.sleep(5)
+                self._connect()
+            else:
+                raise RuntimeError(f"Impossible de se connecter après {self.max_retries} tentatives: {str(e)}")
+        except Exception as e:
+            self.connected = False
+            logger.error(f"Erreur inattendue lors de la connexion RCON: {str(e)}")
+            raise RuntimeError(f"Erreur lors de la connexion RCON: {str(e)}")
 
-            # On récupère toutes les lignes qui contiennent "|"
-            lines = [line for line in response.split('\n') if '|' in line]
-            # On ignore la première ligne (en-tête)
-            if len(lines) > 1:
-                return lines[1:]  # Retourne la liste des joueurs
-            return []
-            
-        except Exception as e:
-            print(f"DEBUG - Erreur : {e}")  # Debug print
-            return []
-            
-    async def get_server_info(self):
-        """Récupère les informations du serveur"""
-        try:
-            response = await self.send_command("serverinfo")
-            if response:
-                # Parser la réponse pour extraire les informations
-                info = {}
-                for line in response.split('\n'):
-                    if ':' in line:
-                        key, value = line.split(':', 1)
-                        info[key.strip()] = value.strip()
-                return info
-            return None
-            
-        except Exception as e:
-            logger.error(f"Erreur lors de la récupération des informations du serveur: {e}")
-            return None
-            
-    async def broadcast_message(self, message):
-        """Envoie un message à tous les joueurs"""
-        try:
-            command = f'broadcast "{message}"'
-            response = await self.send_command(command)
-            return response is not None
-            
-        except Exception as e:
-            logger.error(f"Erreur lors de l'envoi du message broadcast: {e}")
-            return False
-            
-    async def kick_player(self, player_id, reason=""):
-        """Expulse un joueur du serveur"""
-        try:
-            command = f'kick {player_id}'
-            if reason:
-                command += f' "{reason}"'
-            response = await self.send_command(command)
-            return response is not None
-            
-        except Exception as e:
-            logger.error(f"Erreur lors de l'expulsion du joueur {player_id}: {e}")
-            return False
-            
-    async def ban_player(self, player_id, duration=0, reason=""):
-        """Bannit un joueur du serveur"""
-        try:
-            command = f'ban {player_id}'
-            if duration > 0:
-                command += f' {duration}'
-            if reason:
-                command += f' "{reason}"'
-            response = await self.send_command(command)
-            return response is not None
-            
-        except Exception as e:
-            logger.error(f"Erreur lors du bannissement du joueur {player_id}: {e}")
-            return False
-            
-    async def teleport_player(self, player_id, x, y, z):
-        """Téléporte un joueur à des coordonnées spécifiques"""
-        try:
-            command = f'teleport {player_id} {x} {y} {z}'
-            response = await self.send_command(command)
-            return response is not None
-            
-        except Exception as e:
-            logger.error(f"Erreur lors de la téléportation du joueur {player_id}: {e}")
-            return False
-            
-    async def give_item(self, player_id, item_name, amount=1):
-        """Donne un objet à un joueur"""
-        try:
-            command = f'give {player_id} {item_name} {amount}'
-            response = await self.send_command(command)
-            return response is not None
-            
-        except Exception as e:
-            logger.error(f"Erreur lors de l'attribution d'objet au joueur {player_id}: {e}")
-            return False
-            
-    async def save_world(self):
-        """Sauvegarde le monde"""
-        try:
-            response = await self.send_command("saveworld")
-            return response is not None
-            
-        except Exception as e:
-            logger.error(f"Erreur lors de la sauvegarde du monde: {e}")
-            return False
-            
-    async def shutdown_server(self, message="", delay=0):
-        """Arrête le serveur"""
-        try:
-            command = "shutdown"
-            if delay > 0:
-                command += f" {delay}"
-            if message:
-                command += f' "{message}"'
-            response = await self.send_command(command)
-            return response is not None
-            
-        except Exception as e:
-            logger.error(f"Erreur lors de l'arrêt du serveur: {e}")
-            return False 
+    def _ensure_connection(self):
+        """Assure que la connexion est active avant d'envoyer une commande"""
+        if not self.connected or not self.sock:
+            self._connect()
+            if not self.connected:
+                raise RuntimeError("Impossible de se connecter au serveur RCON")
+
+    def _send_packet(self, req_id: int, type_id: int, payload: str):
+        data   = payload.encode('utf8')
+        length = 4 + 4 + len(data) + 2
+        # length, requestId, typeId, payload, two null bytes
+        pkt = struct.pack('<iii', length, req_id, type_id) + data + b'\x00\x00'
+        self.sock.sendall(pkt)
+
+    def _recv_packet(self):
+        # lire length
+        raw = self.sock.recv(4)
+        if len(raw) < 4:
+            raise ConnectionError("Réponse RCON incomplète")
+        length = struct.unpack('<i', raw)[0]
+        # lire le reste
+        data = b''
+        while len(data) < length:
+            chunk = self.sock.recv(length - len(data))
+            if not chunk:
+                break
+            data += chunk
+        req_id, type_id = struct.unpack('<ii', data[:8])
+        payload = data[8:-2].decode('utf8', errors='ignore')
+        return req_id, type_id, payload
+
+    def _auth(self) -> bool:
+        # Utiliser un petit ID (1) pour l'authentification (type=3)
+        self._send_packet(1, 3, self.password)
+        req_id, type_id, _ = self._recv_packet()
+        return req_id != -1  # -1 = échec
+
+    def execute(self, command: str) -> str:
+        # Utiliser un autre ID (2) pour l'exécution de commande (type=2)
+        self._send_packet(2, 2, command)
+        _, _, payload = self._recv_packet()
+        return payload
+
+    def get_online_players(self) -> list[str]:
+        resp    = self.execute("ListPlayers")
+        players = []
+        for line in resp.splitlines():
+            name = line.strip().split()[-1]
+            players.append(name)
+        return players
+
+    def close(self):
+        self.sock.close()

@@ -20,11 +20,7 @@ class BotCommands(commands.Cog):
         )
         
         commands_list = [
-            ("!aide", "Affiche ce message d'aide"),
-            ("!stats", "Affiche les statistiques de kills"),
-            ("!builds", "Affiche les constructions en cours"),
-            ("!players", "Affiche la liste des joueurs connectés"),
-            ("!clans", "Affiche les statistiques des clans")
+            ("!aide", "Affiche ce message d'aide")
         ]
         
         for cmd, desc in commands_list:

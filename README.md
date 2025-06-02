@@ -107,7 +107,7 @@ journalctl -u bot_conan -f
 
 ```
 Bot_Conan/
-├── bot.py                    # Point d'entrée principal
+├── bot.py                   # Point d'entrée principal
 ├── config/
 │   ├── settings.py          # Configuration
 │   └── logging_config.py    # Configuration des logs
@@ -120,7 +120,8 @@ Bot_Conan/
 │   ├── player_tracker.py    # Suivi des joueurs
 │   └── clan_tracker.py      # Suivi des clans
 ├── database/
-│   └── database_manager.py  # Gestion de la base de données
+│   └── database_build.py  # Gestion de la base de données
+|◘   ── database_classement.py  # Gestion de la base de données
 ├── utils/
 │   ├── rcon_client.py       # Client RCON
 │   ├── ftp_handler.py       # Gestion FTP
@@ -159,3 +160,4 @@ Les contributions sont les bienvenues ! N'hésitez pas à ouvrir une issue ou à
 
 Ce projet est sous licence MIT. Voir le fichier `LICENSE` pour plus de détails.
 
+inventory type 0= inventaire 2= bare en bas

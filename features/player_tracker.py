@@ -3,6 +3,7 @@ import asyncio
 import discord
 import sys
 import os
+import datetime
 
 # Ajouter le répertoire parent au PYTHONPATH
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -17,54 +18,70 @@ class PlayerTracker:
         self.channel_id = channel_id
         self.rcon_client = rcon_client
         self.is_running = False
-        self.check_interval = 60
-        self.channel = None
+        self.update_task = None
 
     async def start(self):
-        if not self.bot.is_ready():
-            await asyncio.sleep(5)
-            if not self.bot.is_ready():
-                return False
-
-        logger.info(f"Récupération du canal {self.channel_id}")
-        self.channel = self.bot.get_channel(self.channel_id)
-        if not self.channel:
-            logger.error(f"Canal {self.channel_id} non trouvé")
-            return False
-
-        logger.info(f"Canal trouvé : {self.channel.name}")
-        self.is_running = True
+        """Démarre le suivi des joueurs"""
+        if self.is_running:
+            return
         
-        while self.is_running:
-            try:
-                await self.check_players()
-                await asyncio.sleep(self.check_interval)
-            except Exception as e:
-                logger.error(f"Erreur: {e}")
-                await asyncio.sleep(5)
+        self.is_running = True
+        self.update_task = self.bot.loop.create_task(self._update_loop())
 
     async def stop(self):
+        """Arrête le suivi des joueurs"""
+        if not self.is_running:
+            return
+        
         self.is_running = False
+        if self.update_task:
+            self.update_task.cancel()
+            try:
+                await self.update_task
+            except asyncio.CancelledError:
+                pass
 
-    async def check_players(self):
+    async def _update_loop(self):
+        """Boucle de mise à jour du nom du salon"""
+        while self.is_running:
+            try:
+                await self._update_channel_name()
+                await asyncio.sleep(60)  # Mise à jour toutes les minutes
+            except Exception as e:
+                print(f"Erreur dans la boucle de mise à jour : {e}")
+                await asyncio.sleep(60)  # Attendre avant de réessayer
+
+    async def _update_channel_name(self):
+        """Met à jour le nom du salon avec le nombre de joueurs"""
         try:
-            # Récupérer la liste des joueurs
-            players = await self.rcon_client.get_player_list()
-            print(f"DEBUG - Type renvoyé par get_player_list() : {type(players)}")
-            print(f"DEBUG - Liste des joueurs reçue : {players}")
-
-            # Calculer le nombre de joueurs
-            player_count = len(players)
-            print(f"DEBUG - Nombre de joueurs calculé : {player_count}")
-
-            # Mettre à jour le nom du canal
-            if self.channel:
-                new_name = f"🟢【{player_count}︱40】raid-on"
-                print(f"DEBUG - Nouveau nom du canal : {new_name}")
-                await self.channel.edit(name=new_name)
-                
+            # Récupérer la liste des joueurs en ligne via RCON
+            online = self.rcon_client.get_online_players()
+            count = len(online)
+            
+            # Vérifier si c'est le raid time
+            now = datetime.datetime.now()
+            is_raid_time = (
+                now.weekday() in [2, 5, 6] and  # Mercredi (2), Samedi (5), Dimanche (6)
+                19 <= now.hour < 22  # Entre 19h et 22h
+            )
+            
+            # Renommer le salon
+            channel = self.bot.get_channel(self.channel_id)
+            if channel:
+                if is_raid_time:
+                    await channel.edit(name=f"🟢【{count}︱40】Raid On")
+                else:
+                    await channel.edit(name=f"🟢【{count}︱40】Raid Off")
+        except discord.errors.HTTPException as e:
+            if e.status == 429:  # Rate limit
+                retry_after = e.retry_after
+                print(f"Rate limit atteint. Nouvelle tentative dans {retry_after} secondes")
+                await asyncio.sleep(retry_after)
+                await self._update_channel_name()
+            else:
+                print(f"Erreur Discord : {e}")
         except Exception as e:
-            print(f"DEBUG - Erreur dans check_players() : {e}")
+            print(f"Erreur lors de la mise à jour du nom du salon : {e}")
 
 if __name__ == "__main__":
     # Configuration du logging
@@ -73,27 +90,3 @@ if __name__ == "__main__":
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
     
-    # Test simple de la classe
-    async def test_tracker():
-        try:
-            # Créer une instance de RCONClient avec des valeurs de test
-            rcon_client = RCONClient(
-                host="localhost",
-                port=28316,
-                password="test_password"
-            )
-            
-            # Créer une instance de test du tracker
-            tracker = PlayerTracker(None, 123456789, rcon_client)
-            logger.info("Test du tracker de joueurs")
-            
-            # Tester les méthodes de base
-            await tracker.start()
-            await asyncio.sleep(5)  # Attendre 5 secondes
-            await tracker.stop()
-            
-        except Exception as e:
-            logger.error(f"Erreur lors du test: {e}")
-    
-    # Exécuter le test
-    asyncio.run(test_tracker()) 
