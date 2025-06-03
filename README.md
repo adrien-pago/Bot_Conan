@@ -161,3 +161,9 @@ Les contributions sont les bienvenues ! N'hésitez pas à ouvrir une issue ou à
 Ce projet est sous licence MIT. Voir le fichier `LICENSE` pour plus de détails.
 
 inventory type 0= inventaire 2= bare en bas
+
+
+ # Liste des template_id pour le starter pack
+            starter_items = [
+                51020, 51312, 53002, 52001, 52002, 52003, 52004, 52005, 80852, 92226, 2708
+            ]

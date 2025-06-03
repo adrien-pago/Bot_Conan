@@ -12,6 +12,11 @@ from features.vote_tracker import VoteTracker
 from features.item_manager import ItemManager
 import sqlite3
 import logging
+import datetime
+from database.init_database import init_database
+
+# Initialiser la base de données
+init_database()
 
 # Charger les variables d'environnement
 load_dotenv()
@@ -198,14 +203,35 @@ async def starterpack_command(ctx):
 
         player_name, player_id = result
 
+        # Vérifier si le joueur est connecté
+        online_players = bot.player_tracker.rcon_client.get_online_players()
+        if player_name not in online_players:
+            await ctx.send(f"❌ Vous devez être connecté au serveur pour recevoir votre pack de départ. Actuellement connectés: {', '.join(online_players)}")
+            return
+
+        # Message d'attente
+        await ctx.send("⏳ Préparation de votre pack de départ, veuillez patienter...")
+
         # Donner le pack de départ
         if await bot.item_manager.give_starter_pack(player_id):
             await ctx.send(f"✅ Votre pack de départ a été ajouté à votre inventaire!\n"
-                         f"Personnage : {player_name}")
+                          f"Personnage : {player_name}\n"
+                          f"Contenu : Épée, bouclier, armure, nourriture, eau, bandages, outils, et plus encore.")
+            
+            # Enregistrer la transaction dans l'historique
+            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            try:
+                c.execute("INSERT INTO item_transactions (discord_id, player_name, item_id, status, timestamp) VALUES (?, ?, ?, ?, ?)",
+                         (str(ctx.author.id), player_name, 0, "StarterPack Distribué", timestamp))
+                conn.commit()
+            except sqlite3.OperationalError:
+                # Si la table n'existe pas encore, on l'ignore pour le moment
+                pass
         else:
-            await ctx.send("❌ Une erreur est survenue lors de l'ajout du pack de départ.")
+            await ctx.send("❌ Une erreur est survenue lors de l'ajout du pack de départ. Vérifiez que vous êtes bien connecté au serveur.")
 
     except Exception as e:
+        print(f"Erreur starterpack: {e}")
         await ctx.send("❌ Une erreur est survenue lors de l'ajout du pack de départ.")
     finally:
         conn.close()

@@ -2,7 +2,6 @@ import logging
 import sqlite3
 import threading
 import time
-import tempfile
 import os
 from config.logging_config import setup_logging
 
@@ -16,16 +15,31 @@ class ItemManager:
         """Initialise le gestionnaire d'items"""
         self.bot = bot
         self.ftp = ftp_handler
-        self.game_db_path = 'ConanSandbox/Saved/game.db'
+        self.rcon_client = bot.player_tracker.rcon_client
         self.last_build_time = 0
         self.build_cooldown = 60  # 60 secondes de cooldown après un build
 
-    def can_modify_database(self):
-        """Vérifie si on peut modifier la base de données"""
+        # Liste des template_id pour le starter pack
+        self.starter_items = [
+            51020,  # Exemple d'item 1
+            51312,  # Exemple d'item 2
+            53002,  # Exemple d'item 3
+            52001,  # Exemple d'item 4
+            52002,  # Exemple d'item 5
+            52003,  # Exemple d'item 6
+            52004,  # Exemple d'item 7
+            52005,  # Exemple d'item 8
+            80852,  # Exemple d'item 9
+            92226,  # Exemple d'item 10
+            2708    # Exemple d'item 11
+        ]
+
+    def can_modify_inventory(self):
+        """Vérifie si on peut modifier l'inventaire des joueurs"""
         current_time = time.time()
         if current_time - self.last_build_time < self.build_cooldown:
             remaining = int(self.build_cooldown - (current_time - self.last_build_time))
-            logger.warning(f"Base de données verrouillée, attendez {remaining} secondes")
+            logger.warning(f"Système verrouillé, attendez {remaining} secondes")
             return False
         return True
 
@@ -34,101 +48,71 @@ class ItemManager:
         self.last_build_time = time.time()
 
     async def give_starter_pack(self, player_id):
-        """Donne le pack de départ à un joueur"""
-        # Vérifier si on peut modifier la base de données
-        if not self.can_modify_database():
+        """Donne le pack de départ à un joueur via RCON"""
+        # Vérifier si on peut modifier l'inventaire
+        if not self.can_modify_inventory():
+            logger.warning("Système verrouillé, impossible de donner le starter pack maintenant")
             return False
 
         # Utiliser le verrou global pour éviter les appels multiples
         if not _global_lock.acquire(blocking=False):
             logger.warning(f"Une autre opération est en cours pour le joueur {player_id}")
+            _global_lock.release()
             return False
 
         try:
             logger.info(f"Début de l'ajout du pack de départ pour le joueur {player_id}")
-            
-            # Liste des template_id pour le starter pack
-            starter_items = [
-                51020, 51312, 53002, 52001, 52002, 52003, 52004, 52005, 80852, 92226, 2708
-            ]
 
-            # Lire la base de données du jeu
-            logger.info("Lecture de la base de données du jeu...")
-            game_db = self.ftp.read_database(self.game_db_path)
-            if not game_db:
-                logger.error("Impossible de lire la base de données du jeu")
+            # Récupérer les informations du joueur pour obtenir son nom
+            conn = sqlite3.connect('discord.db')
+            c = conn.cursor()
+            c.execute('SELECT player_name FROM users WHERE player_id = ?', (player_id,))
+            result = c.fetchone()
+            conn.close()
+
+            if not result:
+                logger.error(f"Joueur avec ID {player_id} non trouvé dans la base de données")
                 return False
 
-            # Créer un fichier temporaire pour la base de données
-            with tempfile.NamedTemporaryFile(delete=False) as temp_file:
-                temp_path = temp_file.name
-                temp_file.write(game_db)
-
-            try:
-                # Se connecter à la base de données
-                conn = sqlite3.connect(temp_path)
-                cursor = conn.cursor()
-
-                # Récupérer le dernier item_id utilisé
-                logger.info("Récupération du dernier item_id...")
-                cursor.execute('SELECT MAX(item_id) FROM item_inventory WHERE owner_id = ? AND inv_type = 0', (player_id,))
-                last_item_id = cursor.fetchone()[0] or 0
-                logger.info(f"Dernier item_id trouvé: {last_item_id}")
-
-                # Ajouter chaque item dans l'inventaire
-                logger.info("Ajout des items dans l'inventaire...")
-                for template_id in starter_items:
-                    last_item_id += 1
-                    logger.info(f"Ajout de l'item {template_id} avec item_id {last_item_id}")
-
-                    # Trouver un item existant du même type pour copier ses données
-                    cursor.execute('''
-                        SELECT data 
-                        FROM item_inventory 
-                        WHERE template_id = ? 
-                        AND data IS NOT NULL 
-                        LIMIT 1
-                    ''', (template_id,))
-                    result = cursor.fetchone()
-
-                    if result and result[0]:
-                        # Utiliser les données de l'item existant
-                        item_data = result[0]
-                        logger.info(f"Données trouvées pour l'item {template_id}")
-                    else:
-                        # Si aucun item du même type n'est trouvé, utiliser un BLOB vide
-                        item_data = b'\x00' * 32
-                        logger.warning(f"Aucune donnée trouvée pour l'item {template_id}, utilisation d'un BLOB vide")
-
-                    cursor.execute('''
-                        INSERT INTO item_inventory (item_id, owner_id, inv_type, template_id, data)
-                        VALUES (?, ?, 0, ?, ?)
-                    ''', (last_item_id, player_id, template_id, item_data))
-
-                # Sauvegarder les modifications
-                logger.info("Sauvegarde des modifications...")
-                conn.commit()
-                conn.close()
-
-                # Lire le fichier modifié
-                with open(temp_path, 'rb') as f:
-                    modified_db = f.read()
-
-                # Écrire les modifications dans la base de données
-                logger.info("Écriture des modifications dans la base de données...")
-                if self.ftp.write_database(self.game_db_path, modified_db):
-                    logger.info(f"Pack de départ ajouté avec succès pour le joueur {player_id}")
-                    return True
-                else:
-                    logger.error("Échec de l'écriture dans la base de données du jeu")
-                    return False
-
-            finally:
-                # Nettoyer le fichier temporaire
+            player_name = result[0]
+            
+            # Vérifier si le joueur est actuellement connecté
+            online_players = self.rcon_client.get_online_players()
+            
+            if player_name not in online_players:
+                logger.warning(f"Le joueur {player_name} n'est pas connecté. Impossible de donner le starter pack.")
+                return False
+            
+            # Le joueur est connecté, on peut procéder
+            logger.info(f"Joueur {player_name} trouvé en ligne. Envoi des objets...")
+            
+            # Ajouter chaque item dans l'inventaire via RCON
+            success_count = 0
+            error_count = 0
+            
+            for item_id in self.starter_items:
                 try:
-                    os.unlink(temp_path)
+                    # Utiliser la commande RCON pour donner l'objet au joueur
+                    # Format: con <playerName> spawnitem <itemID> <count>
+                    command = f"con {player_name} spawnitem {item_id} 1"
+                    response = self.rcon_client.execute(command)
+                    
+                    if response and "Unknown command" not in response:
+                        logger.info(f"Item {item_id} ajouté avec succès pour {player_name}")
+                        success_count += 1
+                    else:
+                        logger.error(f"Échec de l'ajout de l'item {item_id} pour {player_name}. Réponse: {response}")
+                        error_count += 1
+                        
                 except Exception as e:
-                    logger.error(f"Erreur lors de la suppression du fichier temporaire: {e}")
+                    logger.error(f"Erreur lors de l'ajout de l'item {item_id}: {e}")
+                    error_count += 1
+            
+            # Journaliser le résultat
+            logger.info(f"Starter pack pour {player_name}: {success_count} items ajoutés, {error_count} échecs")
+            
+            # Retourner True si au moins un item a été donné avec succès
+            return success_count > 0
 
         except Exception as e:
             logger.error(f"Erreur lors de l'ajout du pack de départ: {e}")
@@ -137,4 +121,39 @@ class ItemManager:
             return False
         finally:
             # Libérer le verrou global
+            _global_lock.release()
+            
+    async def give_item_to_player(self, player_name, item_id, count=1):
+        """Donne un item spécifique à un joueur"""
+        if not self.can_modify_inventory():
+            logger.warning("Système verrouillé, impossible de donner l'item maintenant")
+            return False
+            
+        if not _global_lock.acquire(blocking=False):
+            logger.warning(f"Une autre opération est en cours")
+            return False
+            
+        try:
+            # Vérifier si le joueur est connecté
+            online_players = self.rcon_client.get_online_players()
+            
+            if player_name not in online_players:
+                logger.warning(f"Le joueur {player_name} n'est pas connecté. Impossible de donner l'item.")
+                return False
+                
+            # Exécuter la commande RCON
+            command = f"con {player_name} spawnitem {item_id} {count}"
+            response = self.rcon_client.execute(command)
+            
+            if response and "Unknown command" not in response:
+                logger.info(f"Item {item_id} (x{count}) ajouté avec succès pour {player_name}")
+                return True
+            else:
+                logger.error(f"Échec de l'ajout de l'item {item_id} pour {player_name}. Réponse: {response}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Erreur lors de l'ajout de l'item {item_id}: {e}")
+            return False
+        finally:
             _global_lock.release() 
