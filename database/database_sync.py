@@ -29,6 +29,7 @@ class DatabaseSync:
                     verification_code TEXT,
                     verification_timestamp TIMESTAMP,
                     verified BOOLEAN DEFAULT 0,
+                    starter_pack BOOLEAN DEFAULT 0,
                     UNIQUE(discord_id, player_id)
                 )
             ''')
@@ -41,6 +42,11 @@ class DatabaseSync:
             if 'verified' not in columns:
                 c.execute('ALTER TABLE users ADD COLUMN verified BOOLEAN DEFAULT 0')
                 logger.info("Colonne 'verified' ajoutée à la table users")
+                
+            # Ajouter la colonne starter_pack si elle n'existe pas
+            if 'starter_pack' not in columns:
+                c.execute('ALTER TABLE users ADD COLUMN starter_pack BOOLEAN DEFAULT 0')
+                logger.info("Colonne 'starter_pack' ajoutée à la table users")
 
             conn.commit()
         except Exception as e:
@@ -178,5 +184,34 @@ class DatabaseSync:
         except Exception as e:
             logger.error(f"Erreur lors de la récupération des vérifications en attente: {e}")
             raise
+        finally:
+            conn.close()
+
+    def has_received_starterpack(self, discord_id: str):
+        """Vérifie si un joueur a déjà reçu son starterpack"""
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        try:
+            c.execute('SELECT starter_pack FROM users WHERE discord_id = ?', (discord_id,))
+            result = c.fetchone()
+            return bool(result and result[0])
+        except Exception as e:
+            logger.error(f"Erreur lors de la vérification du starterpack: {e}")
+            return False
+        finally:
+            conn.close()
+
+    def set_starterpack_received(self, discord_id: str):
+        """Marque le starterpack comme reçu pour un joueur"""
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        try:
+            c.execute('UPDATE users SET starter_pack = 1 WHERE discord_id = ?', (discord_id,))
+            conn.commit()
+            return True
+        except Exception as e:
+            logger.error(f"Erreur lors de la mise à jour du statut du starterpack: {e}")
+            conn.rollback()
+            return False
         finally:
             conn.close() 

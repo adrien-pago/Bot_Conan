@@ -194,19 +194,18 @@ async def starterpack_command(ctx):
         return
 
     try:
-        # Récupérer les informations du joueur
-        conn = sqlite3.connect('discord.db')
-        c = conn.cursor()
-        
-        # Rechercher le joueur dans la base de données
-        c.execute('SELECT player_name, player_id FROM users WHERE discord_id = ?', (str(ctx.author.id),))
-        result = c.fetchone()
-        
-        if not result:
+        # Vérifier si le joueur est enregistré et récupérer ses informations
+        player_info = bot.player_sync.db.get_player_info(str(ctx.author.id))
+        if not player_info or not player_info[1]:  # Si player_name n'existe pas
             await ctx.send("❌ Vous n'êtes pas encore enregistré. Utilisez la commande `!register` pour vous inscrire.")
             return
-
-        player_name, player_id = result
+            
+        player_name, player_id = player_info[1], player_info[2]
+        
+        # Vérifier si le joueur a déjà reçu son starterpack
+        if bot.player_sync.db.has_received_starterpack(str(ctx.author.id)):
+            await ctx.send("❌ Vous avez déjà reçu votre pack de départ. Cette commande ne peut être utilisée qu'une seule fois par joueur.")
+            return
 
         # Vérifier si le joueur est connecté
         online_players = bot.player_tracker.rcon_client.get_online_players()
@@ -219,11 +218,16 @@ async def starterpack_command(ctx):
 
         # Donner le pack de départ
         if await bot.item_manager.give_starter_pack(player_id):
+            # Marquer le starterpack comme reçu
+            bot.player_sync.db.set_starterpack_received(str(ctx.author.id))
+            
             await ctx.send(f"✅ Votre pack de départ a été ajouté à votre inventaire!\n"
                           f"Personnage : {player_name}\n"
-                          f"Contenu : Épée, bouclier, armure, nourriture, eau, bandages, outils, et plus encore.")
+                          f"Contenu : Piolet stellaire, couteau stellaire, grande hache stellaire, coffre en fer, cheval, selle légère et extrait d'aoles.")
             
             # Enregistrer la transaction dans l'historique
+            conn = sqlite3.connect('discord.db')
+            c = conn.cursor()
             timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             try:
                 c.execute("INSERT INTO item_transactions (discord_id, player_name, item_id, count, price, status, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -232,14 +236,14 @@ async def starterpack_command(ctx):
             except sqlite3.OperationalError:
                 # Si la table n'existe pas encore, on l'ignore pour le moment
                 pass
+            finally:
+                conn.close()
         else:
             await ctx.send("❌ Une erreur est survenue lors de l'ajout du pack de départ. Vérifiez que vous êtes bien connecté au serveur.")
 
     except Exception as e:
         print(f"Erreur starterpack: {e}")
         await ctx.send("❌ Une erreur est survenue lors de l'ajout du pack de départ.")
-    finally:
-        conn.close()
 
 @bot.command(name='build')
 async def build_command(ctx):
