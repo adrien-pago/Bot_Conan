@@ -172,11 +172,12 @@ class RCONClient:
                 return []
             
             players = []
-            steam_ids = {}  # Pour suivre les IDs Steam
             
-            # Analyser les résultats de ListPlayers
+            # Analyser la réponse ligne par ligne
             lines = resp.splitlines()
-            if lines and ("Name" in lines[0] or "ID" in lines[0] or "Player" in lines[0]):
+            
+            # Ignorer la ligne d'en-tête si elle existe
+            if lines and ("Idx" in lines[0] or "Char name" in lines[0] or "Player name" in lines[0]):
                 lines = lines[1:]
                 
             for line in lines:
@@ -185,27 +186,24 @@ class RCONClient:
                     
                 try:
                     logger.info(f"Ligne ListPlayers: {line}")
-                    parts = line.strip().split()
                     
-                    # Format typique: ID PlayerName CharacterName
-                    if len(parts) >= 3:
-                        player_id = parts[0]
-                        steam_name = parts[1]
-                        
-                        # Essayer de récupérer le nom du personnage (normalement le dernier élément)
-                        character_name = parts[-1]
-                        
-                        # Si le nom est "Steam", conserver le steam_id pour utilisation ultérieure
-                        if character_name == "Steam":
-                            steam_ids[player_id] = steam_name
-                            # On n'ajoute pas ce nom à la liste pour l'instant
-                        else:
-                            players.append(character_name)
-                    elif len(parts) >= 1:
-                        # Cas où il n'y a qu'un ID ou un nom
-                        name = parts[-1]
-                        if name != "Steam" and name != "Name" and not name.isdigit():
-                            players.append(name)
+                    # Format attendu: Idx | Char name | Player name | User ID | Platform ID | Platform Name
+                    if "|" in line:
+                        parts = line.split("|")
+                        if len(parts) >= 2:  # Au moins l'index et le nom du personnage
+                            char_name = parts[1].strip()
+                            if char_name and char_name != "Char name":
+                                players.append(char_name)
+                                logger.info(f"Joueur trouvé: {char_name}")
+                    else:
+                        # Format alternatif sans pipes
+                        parts = line.strip().split()
+                        if len(parts) >= 3:  # Au moins l'index, le nom et quelque chose d'autre
+                            # Essayer de récupérer le nom du personnage (souvent la deuxième colonne)
+                            char_name = parts[1]
+                            if char_name and char_name != "Steam" and not char_name.isdigit():
+                                players.append(char_name)
+                                logger.info(f"Joueur trouvé (format alternatif): {char_name}")
                 except Exception as e:
                     logger.warning(f"Erreur lors du parsing d'une ligne de ListPlayers: {line} - {str(e)}")
             
@@ -213,37 +211,35 @@ class RCONClient:
             if players:
                 logger.info(f"Joueurs connectés avec noms de personnage: {players}")
                 return players
-                
-            # Si on n'a que des "Steam", essayer une autre approche avec ListPlayerIDs
-            if steam_ids and not players:
-                logger.info("Aucun nom de personnage trouvé, essai avec ListPlayerIDs")
+            
+            # Dernier recours: si la commande ListPlayerIDs est disponible
+            try:
                 resp2 = self.execute("ListPlayerIDs")
                 logger.info(f"Réponse de ListPlayerIDs: {resp2}")
                 
-                # Analyser la réponse de ListPlayerIDs qui peut contenir plus d'informations
-                lines2 = resp2.splitlines()
-                for line in lines2:
-                    if not line.strip():
-                        continue
-                        
-                    try:
-                        # Format différent selon la version du serveur
-                        parts = line.strip().split()
-                        if len(parts) >= 3:
-                            # Format possible: PlayerID CharID Name
-                            player_id = parts[0]
-                            char_name = ' '.join(parts[2:])  # Le nom peut contenir des espaces
+                # Ne pas traiter si la commande n'existe pas
+                if "Couldn't find the command" in resp2:
+                    logger.warning("La commande ListPlayerIDs n'est pas disponible")
+                else:
+                    # Extraire les noms des joueurs
+                    lines2 = resp2.splitlines()
+                    for line in lines2:
+                        if not line.strip():
+                            continue
                             
-                            if char_name and char_name != "Steam" and not char_name.isdigit():
-                                players.append(char_name)
-                    except Exception as e:
-                        logger.warning(f"Erreur lors du parsing de ListPlayerIDs: {line} - {str(e)}")
+                        try:
+                            parts = line.strip().split()
+                            if len(parts) >= 3:
+                                # Format possible: PlayerID CharID Name
+                                char_name = ' '.join(parts[2:])  # Le nom peut contenir des espaces
+                                if char_name and not char_name.isdigit():
+                                    players.append(char_name)
+                        except Exception as e:
+                            logger.warning(f"Erreur lors du parsing de ListPlayerIDs: {line} - {str(e)}")
+            except Exception as e:
+                logger.warning(f"Erreur lors de l'exécution de ListPlayerIDs: {e}")
             
-            # Si on a toujours pas de joueurs identifiables, utiliser les Steam_ID
-            if not players and steam_ids:
-                players = [f"Steam_{id}" for id in steam_ids.keys()]
-                logger.warning(f"Utilisation des ID Steam comme noms de joueurs: {players}")
-            
+            # Retourner la liste finale des joueurs
             logger.info(f"Joueurs connectés (final): {players}")
             return players
             

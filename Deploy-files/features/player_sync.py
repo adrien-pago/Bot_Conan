@@ -51,9 +51,9 @@ class PlayerSync:
             if match:
                 char_name = match.group(1).strip()
                 uid = match.group(2)
-                player_id = match.group(3)
+                steam_id = match.group(3)
                 message = match.group(4).strip()
-                return char_name, uid, player_id, message
+                return char_name, uid, steam_id, message
         except Exception as e:
             logger.error(f"Erreur lors du parsing de la ligne de log: {e}")
         return None, None, None, None
@@ -86,15 +86,15 @@ class PlayerSync:
                         logger.info(f"Code trouvé dans la ligne: {line}")
                         
                         # Extraire les informations du joueur
-                        char_name, uid, player_id, message = self.parse_log_line(line)
+                        char_name, uid, steam_id, message = self.parse_log_line(line)
                         if char_name and uid and message:
-                            logger.info(f"Informations extraites - Nom: {char_name}, UID: {uid}, Message: {message}")
+                            logger.info(f"Informations extraites - Nom: {char_name}, UID: {uid}, Steam ID: {steam_id}, Message: {message}")
                             
                             # Vérifier que le message correspond exactement au code
                             if message == code:
                                 # Vérifier le joueur
-                                if self.db.verify_player(discord_id, char_name, uid):
-                                    logger.info(f"Joueur vérifié avec succès: {char_name} (UID: {uid})")
+                                if self.db.verify_player(discord_id, char_name, uid, steam_id):
+                                    logger.info(f"Joueur vérifié avec succès: {char_name} (UID: {uid}, Steam ID: {steam_id})")
                                     # Envoyer un message de confirmation
                                     user = self.bot.get_user(int(discord_id))
                                     if user:
@@ -126,12 +126,14 @@ class PlayerSync:
         try:
             info = self.db.get_player_info(str(ctx.author.id))
             if info:
-                discord_name, player_name, player_id, wallet, rp, date_end_rp = info
+                discord_name, player_name, player_id, wallet, rp, date_end_rp, steam_id = info
                 message = f"```\nInformations du joueur :\n"
                 message += f"Discord : {discord_name}\n"
                 if player_name:
                     message += f"Personnage : {player_name}\n"
                     message += f"ID Joueur : {player_id}\n"
+                    if steam_id:
+                        message += f"Steam ID : {steam_id}\n"
                     message += f"Wallet : {wallet}\n"
                     message += f"RP : {rp}\n"
                     if date_end_rp:

@@ -30,6 +30,7 @@ class DatabaseSync:
                     verification_timestamp TIMESTAMP,
                     verified BOOLEAN DEFAULT 0,
                     starter_pack BOOLEAN DEFAULT 0,
+                    steam_id TEXT,
                     UNIQUE(discord_id, player_id)
                 )
             ''')
@@ -47,6 +48,11 @@ class DatabaseSync:
             if 'starter_pack' not in columns:
                 c.execute('ALTER TABLE users ADD COLUMN starter_pack BOOLEAN DEFAULT 0')
                 logger.info("Colonne 'starter_pack' ajoutée à la table users")
+                
+            # Ajouter la colonne steam_id si elle n'existe pas
+            if 'steam_id' not in columns:
+                c.execute('ALTER TABLE users ADD COLUMN steam_id TEXT')
+                logger.info("Colonne 'steam_id' ajoutée à la table users")
 
             conn.commit()
         except Exception as e:
@@ -77,7 +83,7 @@ class DatabaseSync:
         finally:
             conn.close()
 
-    def verify_player(self, discord_id: str, player_name: str, player_id: str):
+    def verify_player(self, discord_id: str, player_name: str, player_id: str, steam_id: str = None):
         """Vérifie et met à jour les informations du joueur"""
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
@@ -86,13 +92,14 @@ class DatabaseSync:
                 UPDATE users 
                 SET player_name = ?,
                     player_id = ?,
+                    steam_id = ?,
                     verification_code = NULL,
                     verification_timestamp = NULL,
                     verified = 1,
                     wallet = 200
                 WHERE discord_id = ?
                 AND verification_code IS NOT NULL
-            ''', (player_name, player_id, discord_id))
+            ''', (player_name, player_id, steam_id, discord_id))
             conn.commit()
             return c.rowcount > 0
         except Exception as e:
@@ -125,7 +132,7 @@ class DatabaseSync:
         c = conn.cursor()
         try:
             c.execute('''
-                SELECT discord_name, player_name, player_id, wallet, RP, date_end_rp
+                SELECT discord_name, player_name, player_id, wallet, RP, date_end_rp, steam_id
                 FROM users
                 WHERE discord_id = ?
             ''', (discord_id,))
