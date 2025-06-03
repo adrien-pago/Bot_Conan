@@ -30,3 +30,4 @@ ENV/
 # Fichiers de base de données
 *.db
 *.sqlite3
+Conan-Shop/
