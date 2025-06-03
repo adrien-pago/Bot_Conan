@@ -13,7 +13,7 @@ def _load_db_from_bytes(db_data):
 class DatabaseBuildManager:
     def __init__(self):
         """Initialise le chemin de la base de données sur le FTP"""
-        self.remote_db = os.getenv('FTP_DB_PATH')  # ex. "ConanSandbox/Saved/game.db"
+        self.remote_db = os.getenv('FTP_GAME_DB', 'ConanSandbox/Saved/game.db')  # Valeur par défaut ajoutée
 
     def get_constructions_by_player(self, ftp_handler: FTPHandler) -> list[dict]:
         """

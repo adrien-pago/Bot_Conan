@@ -102,6 +102,13 @@ systemctl stop bot_conan
 ```bash
 journalctl -u bot_conan -f
 ```
+select *from users ;
+
+select * from classement ;
+
+select * from items ;
+scp root@212.227.47.132:/root/bot/bot_conan/discord.db C:\Users\PAGOA\Documents\GitHub\Bot_Conan\
+
 
 $!w49rG!!F
 

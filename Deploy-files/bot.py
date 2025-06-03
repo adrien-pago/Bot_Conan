@@ -209,14 +209,19 @@ async def starterpack_command(ctx):
 
         # Vérifier si le joueur est connecté
         online_players = bot.player_tracker.rcon_client.get_online_players()
+        
+        # Option de débogage: afficher la liste des joueurs en ligne
+        await ctx.send(f"ℹ️ Joueurs connectés: {', '.join(online_players)}")
+        
+        # Exiger une correspondance exacte avec le nom du joueur
         if player_name not in online_players:
-            await ctx.send(f"❌ Vous devez être connecté au serveur pour recevoir votre pack de départ. Actuellement connectés: {', '.join(online_players)}")
+            await ctx.send(f"❌ Vous devez être connecté au serveur avec votre personnage '{player_name}' pour recevoir votre pack de départ.")
             return
 
         # Message d'attente
         await ctx.send("⏳ Préparation de votre pack de départ, veuillez patienter...")
 
-        # Donner le pack de départ
+        # Donner le pack de départ en utilisant l'ID du joueur (player_id)
         if await bot.item_manager.give_starter_pack(player_id):
             # Marquer le starterpack comme reçu
             bot.player_sync.db.set_starterpack_received(str(ctx.author.id))
@@ -248,9 +253,76 @@ async def starterpack_command(ctx):
 @bot.command(name='build')
 async def build_command(ctx):
     """Commande !build pour afficher le nombre de pièces de construction"""
-    await bot.build_tracker._check_buildings()
-    # Mettre à jour le timestamp du dernier build
-    bot.item_manager.set_last_build_time()
+    try:
+        await ctx.send("⏳ Vérification des constructions en cours...")
+        await bot.build_tracker._check_buildings()
+        # Mettre à jour le timestamp du dernier build
+        bot.item_manager.set_last_build_time()
+    except Exception as e:
+        await ctx.send(f"❌ Une erreur est survenue lors de la vérification des constructions: {str(e)}")
+        print(f"Erreur build_command: {e}")
+
+@bot.command(name='kills_status')
+async def kills_status_command(ctx):
+    """Commande pour vérifier l'état du KillTracker et forcer son démarrage si nécessaire"""
+    if not ctx.author.guild_permissions.administrator:
+        await ctx.send("❌ Cette commande est réservée aux administrateurs.")
+        return
+        
+    try:
+        # Vérifier si le KillTracker est initialisé
+        if not hasattr(bot, 'kill_tracker') or bot.kill_tracker is None:
+            await ctx.send("❌ KillTracker n'est pas initialisé.")
+            return
+            
+        # Vérifier si la tâche est en cours d'exécution
+        is_running = bot.kill_tracker.update_kills_task.is_running()
+        if is_running:
+            status_text = "✅ En cours d'exécution"
+        else:
+            status_text = "❌ Arrêté"
+        await ctx.send(f"État actuel du KillTracker: {status_text}")
+        
+        # Afficher les informations sur le canal
+        channel_id = bot.kill_tracker.channel_id
+        channel = bot.get_channel(channel_id)
+        if channel:
+            await ctx.send(f"Canal configuré: {channel.name} (ID: {channel_id})")
+        else:
+            await ctx.send(f"❌ Canal introuvable (ID: {channel_id})")
+        
+        # Si la tâche n'est pas en cours, proposer de la démarrer
+        if not is_running:
+            await ctx.send("⏳ Tentative de démarrage du KillTracker...")
+            try:
+                # Arrêter d'abord au cas où
+                try:
+                    bot.kill_tracker.update_kills_task.stop()
+                except Exception:
+                    pass
+                
+                # Démarrer la tâche
+                await bot.kill_tracker.start()
+                
+                # Vérifier si le démarrage a réussi
+                if bot.kill_tracker.update_kills_task.is_running():
+                    await ctx.send("✅ KillTracker démarré avec succès!")
+                else:
+                    await ctx.send("❌ Échec du démarrage du KillTracker.")
+            except Exception as e:
+                await ctx.send(f"❌ Erreur lors du démarrage du KillTracker: {str(e)}")
+                
+        # Forcer une mise à jour immédiate
+        await ctx.send("⏳ Exécution manuelle de la mise à jour...")
+        try:
+            await bot.kill_tracker.display_kills(ctx)
+            await ctx.send("✅ Mise à jour effectuée.")
+        except Exception as e:
+            await ctx.send(f"❌ Erreur lors de la mise à jour manuelle: {str(e)}")
+            
+    except Exception as e:
+        await ctx.send(f"❌ Erreur: {str(e)}")
+        print(f"Erreur kills_status_command: {e}")
 
 # Lancer le bot
 bot.run(DISCORD_TOKEN) 

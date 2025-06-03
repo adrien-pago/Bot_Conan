@@ -131,6 +131,7 @@ class PlayerSync:
                 message += f"Discord : {discord_name}\n"
                 if player_name:
                     message += f"Personnage : {player_name}\n"
+                    message += f"ID Joueur : {player_id}\n"
                     message += f"Wallet : {wallet}\n"
                     message += f"RP : {rp}\n"
                     if date_end_rp:
@@ -143,4 +144,6 @@ class PlayerSync:
             await ctx.send(message)
         except Exception as e:
             logger.error(f"Erreur lors de la récupération des infos du joueur: {e}")
-            await ctx.send("❌ Une erreur est survenue lors de la récupération des informations.") 
+            await ctx.send("❌ Une erreur est survenue lors de la récupération des informations.")
+
+    # La fonction update_player_name a été supprimée car les joueurs ne peuvent pas changer leur nom in-game 

@@ -71,27 +71,24 @@ class ItemManager:
                 return False
 
             player_name = result[0]
+            logger.info(f"Nom du joueur récupéré: {player_name} (ID: {player_id})")
             
-            # Vérifier si le joueur est actuellement connecté
-            online_players = self.rcon_client.get_online_players()
+            # On ne vérifie plus si le joueur est connecté avec un nom exact,
+            # on utilise directement l'ID du joueur pour envoyer les items
+            # Cette approche est plus fiable car le joueur a déjà été vérifié lors du register
             
-            if player_name not in online_players:
-                logger.warning(f"Le joueur {player_name} n'est pas connecté. Impossible de donner le starter pack.")
-                return False
-            
-            # Le joueur est connecté, on peut procéder
-            logger.info(f"Joueur {player_name} trouvé en ligne. Envoi des objets...")
-            
-            # Ajouter chaque item dans l'inventaire via RCON
+            # Ajouter chaque item dans l'inventaire via RCON en utilisant le nom du joueur
             success_count = 0
             error_count = 0
             
             for item_id in self.starter_items:
                 try:
-                    # Utiliser la commande RCON pour donner l'objet au joueur
-                    # Format: con <playerName> spawnitem <itemID> <count>
+                    # Utiliser la commande RCON pour donner l'objet au joueur avec son nom
                     command = f"con {player_name} spawnitem {item_id} 1"
+                    logger.info(f"Exécution de la commande: {command}")
                     response = self.rcon_client.execute(command)
+                    
+                    logger.info(f"Réponse RCON: {response}")
                     
                     if response and "Unknown command" not in response:
                         logger.info(f"Item {item_id} ajouté avec succès pour {player_name}")
@@ -105,7 +102,7 @@ class ItemManager:
                     error_count += 1
             
             # Journaliser le résultat
-            logger.info(f"Starter pack pour {player_name}: {success_count} items ajoutés, {error_count} échecs")
+            logger.info(f"Starter pack pour {player_name} (ID: {player_id}): {success_count} items ajoutés, {error_count} échecs")
             
             # Retourner True si au moins un item a été donné avec succès
             return success_count > 0

@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 import logging
 import asyncio
 import time
+import json
 
 # Utiliser le logger configuré dans bot.py
 logger = logging.getLogger(__name__)
@@ -129,15 +130,51 @@ class RCONClient:
         """Récupère la liste des joueurs connectés"""
         try:
             self._ensure_connection()
-            resp = self.execute("ListPlayers")
-            players = []
             
-            # Gérer le cas où il n'y a pas de joueurs
+            # Essayer la commande GetPlayerList spécifique à Conan Exiles
+            resp_player_list = self.execute("GetPlayerList")
+            logger.info(f"Réponse de GetPlayerList: {resp_player_list}")
+            
+            # Si la commande a fonctionné et retourne des données JSON valides
+            if resp_player_list and resp_player_list.strip() and "{" in resp_player_list:
+                try:
+                    # Nettoyer la réponse si nécessaire pour obtenir un JSON valide
+                    json_str = resp_player_list.strip()
+                    if json_str.startswith("Command 'GetPlayerList' succeeded!"):
+                        json_str = json_str.replace("Command 'GetPlayerList' succeeded!", "").strip()
+                    
+                    # Analyser le JSON
+                    player_data = json.loads(json_str)
+                    players = []
+                    
+                    # Format attendu: {"players": [{"playerId": 12345, "name": "PlayerName", "charName": "CharacterName"}, ...]}
+                    if "players" in player_data and isinstance(player_data["players"], list):
+                        for player in player_data["players"]:
+                            # Utiliser le nom du personnage s'il existe, sinon le nom du joueur
+                            if "charName" in player and player["charName"]:
+                                players.append(player["charName"])
+                            elif "name" in player and player["name"]:
+                                players.append(player["name"])
+                        
+                        if players:
+                            logger.info(f"Joueurs connectés via GetPlayerList: {players}")
+                            return players
+                except Exception as e:
+                    logger.warning(f"Erreur lors du parsing du JSON de GetPlayerList: {e}")
+            
+            # Si GetPlayerList n'a pas fonctionné, essayer avec ListPlayers
+            resp = self.execute("ListPlayers")
+            logger.info(f"Réponse brute de ListPlayers: {resp}")
+            
+            # Si aucun joueur n'est connecté
             if "No players" in resp or not resp.strip():
                 logger.info("Aucun joueur connecté")
                 return []
-                
-            # Ignorer la première ligne si c'est un en-tête
+            
+            players = []
+            steam_ids = {}  # Pour suivre les IDs Steam
+            
+            # Analyser les résultats de ListPlayers
             lines = resp.splitlines()
             if lines and ("Name" in lines[0] or "ID" in lines[0] or "Player" in lines[0]):
                 lines = lines[1:]
@@ -147,18 +184,69 @@ class RCONClient:
                     continue
                     
                 try:
-                    # Format attendu: "ID Name ... PlayerName"
+                    logger.info(f"Ligne ListPlayers: {line}")
                     parts = line.strip().split()
-                    if len(parts) >= 1:
-                        # Le nom du joueur est généralement le dernier élément
+                    
+                    # Format typique: ID PlayerName CharacterName
+                    if len(parts) >= 3:
+                        player_id = parts[0]
+                        steam_name = parts[1]
+                        
+                        # Essayer de récupérer le nom du personnage (normalement le dernier élément)
+                        character_name = parts[-1]
+                        
+                        # Si le nom est "Steam", conserver le steam_id pour utilisation ultérieure
+                        if character_name == "Steam":
+                            steam_ids[player_id] = steam_name
+                            # On n'ajoute pas ce nom à la liste pour l'instant
+                        else:
+                            players.append(character_name)
+                    elif len(parts) >= 1:
+                        # Cas où il n'y a qu'un ID ou un nom
                         name = parts[-1]
-                        if name and name != "Name" and not name.isdigit():
+                        if name != "Steam" and name != "Name" and not name.isdigit():
                             players.append(name)
                 except Exception as e:
                     logger.warning(f"Erreur lors du parsing d'une ligne de ListPlayers: {line} - {str(e)}")
-                    
-            logger.info(f"Joueurs connectés: {players}")
+            
+            # Si on a trouvé des joueurs, on retourne la liste
+            if players:
+                logger.info(f"Joueurs connectés avec noms de personnage: {players}")
+                return players
+                
+            # Si on n'a que des "Steam", essayer une autre approche avec ListPlayerIDs
+            if steam_ids and not players:
+                logger.info("Aucun nom de personnage trouvé, essai avec ListPlayerIDs")
+                resp2 = self.execute("ListPlayerIDs")
+                logger.info(f"Réponse de ListPlayerIDs: {resp2}")
+                
+                # Analyser la réponse de ListPlayerIDs qui peut contenir plus d'informations
+                lines2 = resp2.splitlines()
+                for line in lines2:
+                    if not line.strip():
+                        continue
+                        
+                    try:
+                        # Format différent selon la version du serveur
+                        parts = line.strip().split()
+                        if len(parts) >= 3:
+                            # Format possible: PlayerID CharID Name
+                            player_id = parts[0]
+                            char_name = ' '.join(parts[2:])  # Le nom peut contenir des espaces
+                            
+                            if char_name and char_name != "Steam" and not char_name.isdigit():
+                                players.append(char_name)
+                    except Exception as e:
+                        logger.warning(f"Erreur lors du parsing de ListPlayerIDs: {line} - {str(e)}")
+            
+            # Si on a toujours pas de joueurs identifiables, utiliser les Steam_ID
+            if not players and steam_ids:
+                players = [f"Steam_{id}" for id in steam_ids.keys()]
+                logger.warning(f"Utilisation des ID Steam comme noms de joueurs: {players}")
+            
+            logger.info(f"Joueurs connectés (final): {players}")
             return players
+            
         except Exception as e:
             logger.error(f"Erreur lors de la récupération des joueurs en ligne: {str(e)}")
             return []
