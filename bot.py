@@ -1,5 +1,10 @@
 import os
 import discord
+import ssl
+
+# Configuration SSL pour Python 3.13
+ssl._create_default_https_context = ssl._create_unverified_context
+
 from discord.ext import commands
 from dotenv import load_dotenv
 from features.player_tracker import PlayerTracker
@@ -221,8 +226,8 @@ async def starterpack_command(ctx):
             # Enregistrer la transaction dans l'historique
             timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             try:
-                c.execute("INSERT INTO item_transactions (discord_id, player_name, item_id, status, timestamp) VALUES (?, ?, ?, ?, ?)",
-                         (str(ctx.author.id), player_name, 0, "StarterPack Distribué", timestamp))
+                c.execute("INSERT INTO item_transactions (discord_id, player_name, item_id, count, price, status, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                         (str(ctx.author.id), player_name, 0, 1, 0, "StarterPack Distribué", timestamp))
                 conn.commit()
             except sqlite3.OperationalError:
                 # Si la table n'existe pas encore, on l'ignore pour le moment

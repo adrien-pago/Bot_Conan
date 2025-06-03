@@ -126,12 +126,42 @@ class RCONClient:
         return payload
 
     def get_online_players(self) -> list[str]:
-        resp    = self.execute("ListPlayers")
-        players = []
-        for line in resp.splitlines():
-            name = line.strip().split()[-1]
-            players.append(name)
-        return players
+        """Récupère la liste des joueurs connectés"""
+        try:
+            self._ensure_connection()
+            resp = self.execute("ListPlayers")
+            players = []
+            
+            # Gérer le cas où il n'y a pas de joueurs
+            if "No players" in resp or not resp.strip():
+                logger.info("Aucun joueur connecté")
+                return []
+                
+            # Ignorer la première ligne si c'est un en-tête
+            lines = resp.splitlines()
+            if lines and ("Name" in lines[0] or "ID" in lines[0] or "Player" in lines[0]):
+                lines = lines[1:]
+                
+            for line in lines:
+                if not line.strip():
+                    continue
+                    
+                try:
+                    # Format attendu: "ID Name ... PlayerName"
+                    parts = line.strip().split()
+                    if len(parts) >= 1:
+                        # Le nom du joueur est généralement le dernier élément
+                        name = parts[-1]
+                        if name and name != "Name" and not name.isdigit():
+                            players.append(name)
+                except Exception as e:
+                    logger.warning(f"Erreur lors du parsing d'une ligne de ListPlayers: {line} - {str(e)}")
+                    
+            logger.info(f"Joueurs connectés: {players}")
+            return players
+        except Exception as e:
+            logger.error(f"Erreur lors de la récupération des joueurs en ligne: {str(e)}")
+            return []
 
     def close(self):
         self.sock.close()

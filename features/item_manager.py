@@ -21,17 +21,13 @@ class ItemManager:
 
         # Liste des template_id pour le starter pack
         self.starter_items = [
-            51020,  # Exemple d'item 1
-            51312,  # Exemple d'item 2
-            53002,  # Exemple d'item 3
-            52001,  # Exemple d'item 4
-            52002,  # Exemple d'item 5
-            52003,  # Exemple d'item 6
-            52004,  # Exemple d'item 7
-            52005,  # Exemple d'item 8
-            80852,  # Exemple d'item 9
-            92226,  # Exemple d'item 10
-            2708    # Exemple d'item 11
+            51020,  # Piolet stellaire
+            51312,  # Couteau stellaire
+            50492,  # Grande hache stellaire
+            80852,  # Coffre en fer
+            92226,  # Cheval
+            2708,   # Selle légère
+            53002   # Extrait d'aoles
         ]
 
     def can_modify_inventory(self):

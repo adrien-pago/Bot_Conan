@@ -41957,3 +41957,31 @@ Traceback (most recent call last):
   File "C:\Users\adrie\AppData\Local\Programs\Python\Python312\Lib\asyncio\runners.py", line 157, in _on_sigint
     raise KeyboardInterrupt()
 KeyboardInterrupt
+2025-06-03 11:34:32 - utils.rcon_client - INFO - Connexion RCON réussie après 0 tentatives
+2025-06-03 11:34:32 - utils.rcon_client - INFO - Connexion RCON réussie après 0 tentatives
+2025-06-03 11:34:32 - utils.rcon_client - INFO - Connexion RCON réussie après 0 tentatives
+2025-06-03 11:34:32 - utils.rcon_client - INFO - Connexion RCON réussie après 0 tentatives
+2025-06-03 11:34:32 - utils.rcon_client - INFO - Connexion RCON réussie après 0 tentatives
+2025-06-03 11:34:32 - utils.rcon_client - INFO - Connexion RCON réussie après 0 tentatives
+2025-06-03 11:34:32 - utils.rcon_client - INFO - Connexion RCON réussie après 0 tentatives
+2025-06-03 11:34:32 - discord.client - INFO - logging in using static token
+2025-06-03 11:34:32 - discord.client - INFO - logging in using static token
+2025-06-03 11:34:32 - discord.client - INFO - logging in using static token
+2025-06-03 11:34:32 - discord.client - INFO - logging in using static token
+2025-06-03 11:34:32 - discord.client - INFO - logging in using static token
+2025-06-03 11:34:32 - discord.client - INFO - logging in using static token
+2025-06-03 11:34:32 - discord.client - INFO - logging in using static token
+2025-06-03 11:39:57 - utils.rcon_client - INFO - Connexion RCON réussie après 0 tentatives
+2025-06-03 11:39:57 - utils.rcon_client - INFO - Connexion RCON réussie après 0 tentatives
+2025-06-03 11:39:57 - utils.rcon_client - INFO - Connexion RCON réussie après 0 tentatives
+2025-06-03 11:39:57 - utils.rcon_client - INFO - Connexion RCON réussie après 0 tentatives
+2025-06-03 11:39:57 - utils.rcon_client - INFO - Connexion RCON réussie après 0 tentatives
+2025-06-03 11:39:57 - utils.rcon_client - INFO - Connexion RCON réussie après 0 tentatives
+2025-06-03 11:39:57 - utils.rcon_client - INFO - Connexion RCON réussie après 0 tentatives
+2025-06-03 11:39:57 - discord.client - INFO - logging in using static token
+2025-06-03 11:39:57 - discord.client - INFO - logging in using static token
+2025-06-03 11:39:57 - discord.client - INFO - logging in using static token
+2025-06-03 11:39:57 - discord.client - INFO - logging in using static token
+2025-06-03 11:39:57 - discord.client - INFO - logging in using static token
+2025-06-03 11:39:57 - discord.client - INFO - logging in using static token
+2025-06-03 11:39:57 - discord.client - INFO - logging in using static token

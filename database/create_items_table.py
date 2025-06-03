@@ -42,17 +42,13 @@ def create_items_tables():
 
         # Ajouter les items du starter pack s'ils n'existent pas déjà
         starter_items = [
-            (1, "Hache piolet stellaire", 51020, 1, 100, 0, "Outils", 1),
+            (1, "Piolet stellaire", 51020, 1, 100, 0, "Outils", 1),
             (2, "couteau stellaire", 51312, 1, 100, 0, "Outils", 1),
-            (3, "faucille stellaire", 53002, 1, 100, 0, "Outils", 1),
-            (4, "Tête légère", 52001, 5, 10, 0, "Armures", 1),
-            (5, "Torse léger", 52002, 5, 10, 0, "Armures", 1),
-            (6, "Pantalon léger", 52003, 10, 0, 0, "Armures", 1),
-            (7, "Mains léger", 52004, 1, 10, 0, "Armures", 1),
-            (8, "Pieds léger", 52005, 3, 10, 0, "Armures", 1),
-            (9, "Cheval", 80852, 1, 300, 0, "Pets", 1),
-            (10, "Selle basique", 92226, 1, 50, 0, "Pets", 1),
-            (11, "Extrait d'aoles", 2708, 1, 20, 0, "Potions", 1)
+            (3, "Grande hache stellaire", 50492, 1, 100, 0, "Armes", 1),
+            (4, "Coffre en fer", 80852, 1, 100, 0, "Stockage", 1),
+            (5, "Cheval", 92226, 1, 300, 0, "Pets", 1),
+            (6, "Selle légère", 2708, 1, 50, 0, "Pets", 1),
+            (7, "Extrait d'aoles", 53002, 1, 20, 0, "Potions", 1)
         ]
 
         # Vérifier si les items existent déjà
