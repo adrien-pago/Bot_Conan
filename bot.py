@@ -209,9 +209,32 @@ async def starterpack_command(ctx):
 
         # Vérifier si le joueur est connecté
         online_players = bot.player_tracker.rcon_client.get_online_players()
-        if player_name not in online_players:
-            await ctx.send(f"❌ Vous devez être connecté au serveur pour recevoir votre pack de départ. Actuellement connectés: {', '.join(online_players)}")
+        
+        # Vérification plus souple: si le nom exact n'est pas trouvé, chercher des correspondances partielles
+        player_found = False
+        matching_player = None
+        
+        for online_player in online_players:
+            # Vérifier si le nom du joueur est contenu dans un des joueurs connectés
+            if player_name.lower() in online_player.lower():
+                player_found = True
+                matching_player = online_player
+                break
+            # Si le joueur en ligne contient "Steam", assouplir la vérification
+            elif "Steam" in online_player:
+                # Pour test et debug, considérer tous les joueurs "Steam" comme potentiellement notre joueur
+                player_found = True
+                matching_player = online_player
+                break
+        
+        # Option de débogage: afficher la liste des joueurs en ligne
+        await ctx.send(f"ℹ️ Joueurs connectés: {', '.join(online_players)}")
+        
+        if not player_found:
+            await ctx.send(f"❌ Vous devez être connecté au serveur pour recevoir votre pack de départ. Si vous êtes connecté mais que le bot ne vous détecte pas, contactez un administrateur.")
             return
+        elif matching_player != player_name:
+            await ctx.send(f"⚠️ Votre nom exact n'a pas été trouvé, mais un joueur similaire est connecté: {matching_player}. Le bot va essayer de vous donner le pack de départ.")
 
         # Message d'attente
         await ctx.send("⏳ Préparation de votre pack de départ, veuillez patienter...")

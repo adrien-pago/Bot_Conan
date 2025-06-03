@@ -132,6 +132,9 @@ class RCONClient:
             resp = self.execute("ListPlayers")
             players = []
             
+            # Déboguer la réponse brute
+            logger.info(f"Réponse brute de ListPlayers: {resp}")
+            
             # Gérer le cas où il n'y a pas de joueurs
             if "No players" in resp or not resp.strip():
                 logger.info("Aucun joueur connecté")
@@ -147,11 +150,22 @@ class RCONClient:
                     continue
                     
                 try:
+                    # Afficher la ligne complète pour déboguer
+                    logger.info(f"Ligne ListPlayers: {line}")
+                    
                     # Format attendu: "ID Name ... PlayerName"
                     parts = line.strip().split()
                     if len(parts) >= 1:
                         # Le nom du joueur est généralement le dernier élément
                         name = parts[-1]
+                        
+                        # Si le nom est "Steam", essayer d'extraire l'ID du joueur comme identifiant temporaire
+                        if name == "Steam" and len(parts) > 1:
+                            # Prendre l'ID comme identifiant supplémentaire
+                            player_id = parts[0]
+                            # Utiliser Steam_ID pour différencier les joueurs
+                            name = f"Steam_{player_id}"
+                            
                         if name and name != "Name" and not name.isdigit():
                             players.append(name)
                 except Exception as e:

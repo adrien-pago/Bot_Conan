@@ -123,8 +123,12 @@ Bot_Conan/
 │   ├── player_tracker.py    # Suivi des joueurs
 │   └── clan_tracker.py      # Suivi des clans
 ├── database/
-│   └── database_build.py  # Gestion de la base de données
-|◘   ── database_classement.py  # Gestion de la base de données
+│   ├── _ini_.py                # Ce fichier permet à Python de reconnaître ce répertoire comme un package 
+│   ├── create_items_table.py   # Ce fichier permet à Python de reconnaître ce répertoire comme un package 
+│   ├── database_build.py       # Gestion de la base de données
+│   ├── database_classement.py  # Gestion de la base de données
+│   ├── database_sync.py
+│   └── init_database.py
 ├── utils/
 │   ├── rcon_client.py       # Client RCON
 │   ├── ftp_handler.py       # Gestion FTP
