@@ -103,6 +103,9 @@ systemctl stop bot_conan
 journalctl -u bot_conan -f
 ```
 
+$!w49rG!!F
+
+
 ## Structure du Projet
 
 ```

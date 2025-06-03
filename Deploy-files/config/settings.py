@@ -36,6 +36,6 @@ BUILD_CHECK_INTERVAL = 5     # minutes
 KILLS_UPDATE_INTERVAL = 1    # minute
 
 # Configuration des raids
-RAID_DAYS = [5, 6]  # Samedi, Dimanche
-RAID_START_HOUR = 20
-RAID_END_HOUR = 23
+RAID_DAYS = [2, 5, 6]  # Mercredi, Samedi, Dimanche
+RAID_START_HOUR = 19
+RAID_END_HOUR = 22 

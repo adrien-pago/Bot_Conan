@@ -30,4 +30,10 @@ ENV/
 # Fichiers de base de données
 *.db
 *.sqlite3
-Conan-Shop/
+
+# Fichiers de logs
+logs/
+*.log
+
+#Fichier deploy
+deploy.ps1
