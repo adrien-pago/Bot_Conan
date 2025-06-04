@@ -53,20 +53,6 @@ class KillTracker:
         message += "```"
         return message
 
-    def stats_have_changed(self, new_stats):
-        """Vérifie si les statistiques ont changé"""
-        if self.last_stats is None:
-            return True
-        
-        if len(new_stats) != len(self.last_stats):
-            return True
-            
-        for (old_name, old_kills), (new_name, new_kills) in zip(self.last_stats, new_stats):
-            if old_name != new_name or old_kills != new_kills:
-                return True
-                
-        return False
-
     @tasks.loop(seconds=5)
     async def update_kills_task(self):
         """Met à jour le classement des kills toutes les 5 secondes"""
@@ -82,9 +68,6 @@ class KillTracker:
             return
         stats = self.db.get_kill_stats()
         if not stats:
-            return
-        # Vérifier si les stats ont changé
-        if not self.stats_have_changed(stats):
             return
         message = self.format_kill_stats(stats)
         # Supprimer l'ancien message si on en a un

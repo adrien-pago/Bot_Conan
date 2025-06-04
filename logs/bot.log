@@ -38553,3 +38553,23 @@ Traceback (most recent call last):
   File "C:\Users\adrie\AppData\Local\Programs\Python\Python312\Lib\asyncio\runners.py", line 157, in _on_sigint
     raise KeyboardInterrupt()
 KeyboardInterrupt
+2025-06-05 01:29:45 - discord.client - WARNING - PyNaCl is not installed, voice will NOT be supported
+2025-06-05 01:29:45 - discord.client - WARNING - PyNaCl is not installed, voice will NOT be supported
+2025-06-05 01:29:45 - discord.client - WARNING - PyNaCl is not installed, voice will NOT be supported
+2025-06-05 01:29:45 - discord.client - WARNING - PyNaCl is not installed, voice will NOT be supported
+2025-06-05 01:29:45 - discord.client - WARNING - PyNaCl is not installed, voice will NOT be supported
+2025-06-05 01:29:46 - utils.rcon_client - INFO - Connexion RCON réussie après 0 tentatives
+2025-06-05 01:29:46 - utils.rcon_client - INFO - Connexion RCON réussie après 0 tentatives
+2025-06-05 01:29:46 - utils.rcon_client - INFO - Connexion RCON réussie après 0 tentatives
+2025-06-05 01:29:46 - utils.rcon_client - INFO - Connexion RCON réussie après 0 tentatives
+2025-06-05 01:29:46 - utils.rcon_client - INFO - Connexion RCON réussie après 0 tentatives
+2025-06-05 01:29:46 - discord.client - INFO - logging in using static token
+2025-06-05 01:29:46 - discord.client - INFO - logging in using static token
+2025-06-05 01:29:46 - discord.client - INFO - logging in using static token
+2025-06-05 01:29:46 - discord.client - INFO - logging in using static token
+2025-06-05 01:29:46 - discord.client - INFO - logging in using static token
+2025-06-05 01:29:47 - discord.gateway - INFO - Shard ID None has connected to Gateway (Session ID: 38a937c01ab47aed7f5740bf54922f7c).
+2025-06-05 01:29:47 - discord.gateway - INFO - Shard ID None has connected to Gateway (Session ID: 38a937c01ab47aed7f5740bf54922f7c).
+2025-06-05 01:29:47 - discord.gateway - INFO - Shard ID None has connected to Gateway (Session ID: 38a937c01ab47aed7f5740bf54922f7c).
+2025-06-05 01:29:47 - discord.gateway - INFO - Shard ID None has connected to Gateway (Session ID: 38a937c01ab47aed7f5740bf54922f7c).
+2025-06-05 01:29:47 - discord.gateway - INFO - Shard ID None has connected to Gateway (Session ID: 38a937c01ab47aed7f5740bf54922f7c).
