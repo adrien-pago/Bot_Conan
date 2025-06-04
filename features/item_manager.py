@@ -153,38 +153,85 @@ class ItemManager:
         finally:
             _global_lock.release()
 
-            
-    async def give_item_to_player(self, player_name, item_id, count=1):
-        """Donne un item spécifique à un joueur"""
+    def get_player_steamid(self, discord_id):
+        """Récupère le steam_id du joueur à partir de son Discord ID (si synchronisé)"""
+        try:
+            conn = sqlite3.connect('discord.db')
+            cursor = conn.cursor()
+            cursor.execute("SELECT steam_id FROM users WHERE discord_id = ?", (discord_id,))
+            row = cursor.fetchone()
+            conn.close()
+            if not row:
+                logger.warning(f"Aucun utilisateur trouvé pour discord_id {discord_id}")
+                return None
+            return row[0]
+        except Exception as e:
+            logger.error(f"Erreur lors de la récupération du steam_id: {e}")
+            return None
+
+    def get_conid_from_steamid(self, steam_id):
+        """Récupère le conid (index temporaire) du joueur à partir de son steam_id via ListPlayers"""
+        try:
+            resp = self.rcon_client.execute("ListPlayers")
+            if not resp or not steam_id:
+                return None
+            lines = resp.splitlines()
+            if lines and ("Idx" in lines[0] or "Char name" in lines[0] or "Player name" in lines[0]):
+                lines = lines[1:]
+            for line in lines:
+                if steam_id in line:
+                    parts = line.split("|")
+                    if len(parts) >= 2:
+                        conid = parts[0].strip()
+                        return conid
+            return None
+        except Exception as e:
+            logger.error(f"Erreur lors de la récupération du conid: {e}")
+            return None
+
+    async def give_item_to_player(self, discord_id, item_id, count=1):
+        """Donne un item spécifique à un joueur via son Discord ID (utilise conid comme identifiant RCON)"""
         if not self.can_modify_inventory():
             logger.warning("Système verrouillé, impossible de donner l'item maintenant")
-            return False
-            
+            return False, "Système verrouillé, réessaie dans quelques secondes."
+        
         if not _global_lock.acquire(blocking=False):
             logger.warning(f"Une autre opération est en cours")
-            return False
-            
+            return False, "Une autre opération est en cours, réessaie dans quelques secondes."
+        
         try:
-            # Vérifier si le joueur est connecté
-            online_players = self.rcon_client.get_online_players()
-            
-            if player_name not in online_players:
-                logger.warning(f"Le joueur {player_name} n'est pas connecté. Impossible de donner l'item.")
-                return False
-                
-            # Exécuter la commande RCON
-            command = f"con {player_name} spawnitem {item_id} {count}"
+            steam_id = self.get_player_steamid(discord_id)
+            if not steam_id:
+                return False, "Tu n'es pas enregistré. Utilise !register d'abord."
+            conid = self.get_conid_from_steamid(steam_id)
+            if not conid:
+                return False, "Tu dois être connecté en jeu pour recevoir l'item."
+            # Exécuter la commande RCON avec le conid
+            command = f"con {conid} spawnitem {item_id} {count}"
             response = self.rcon_client.execute(command)
-            
             if response and "Unknown command" not in response:
-                logger.info(f"Item {item_id} (x{count}) ajouté avec succès pour {player_name}")
-                return True
+                logger.info(f"Item {item_id} (x{count}) ajouté avec succès pour conid {conid}")
+                return True, None
             else:
-                logger.error(f"Échec de l'ajout de l'item {item_id} pour {player_name}. Réponse: {response}")
-                return False
-                
+                logger.error(f"Échec de l'ajout de l'item {item_id} pour conid {conid}. Réponse: {response}")
+                return False, f"Erreur lors du give: {response}"
         except Exception as e:
             logger.error(f"Erreur lors de l'ajout de l'item {item_id}: {e}")
-            return False
+            return False, f"Erreur interne: {e}"
         finally:
-            _global_lock.release() 
+            _global_lock.release()
+
+    def is_player_online(self, steam_id):
+        """Vérifie si le joueur avec ce steam_id est connecté au serveur Conan"""
+        try:
+            resp = self.rcon_client.execute("ListPlayers")
+            if not resp or not steam_id:
+                return False
+            lines = resp.splitlines()
+            for line in lines:
+                if steam_id in line:
+                    return True
+            return False
+        except Exception as e:
+            logger.error(f"Erreur lors de la vérification de la présence en ligne: {e}")
+            return False 

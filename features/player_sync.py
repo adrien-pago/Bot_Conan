@@ -1,4 +1,3 @@
-import logging
 import random
 import string
 import re
@@ -7,9 +6,8 @@ from datetime import datetime, timedelta
 from discord.ext import tasks
 from config.logging_config import setup_logging
 from database.database_sync import DatabaseSync
+from database.database_classement import DatabaseClassement
 from utils.ftp_handler import FTPHandler
-
-logger = setup_logging()
 
 class PlayerSync:
     def __init__(self, bot, log_file_path, ftp_handler=None):
@@ -18,10 +16,10 @@ class PlayerSync:
         self.log_file_path = log_file_path
         self.ftp = ftp_handler or FTPHandler()
         self.db = DatabaseSync()
+        self.classement_db = DatabaseClassement()
         self.game_db_path = 'game.db'
         self.verification_codes = {}
         self.verification_timeouts = {}
-        logger.info("PlayerSync initialisé")
 
     def generate_verification_code(self, length=8):
         """Génère un code de vérification aléatoire"""
@@ -38,9 +36,7 @@ class PlayerSync:
             )
             
             await ctx.send(f"Pour lier votre compte Discord à votre compte de jeu, écrivez ce code dans le chat du jeu :\n```{verification_code}```\nVous avez 5 minutes pour le faire.")
-            logger.info(f"Code de vérification généré pour {ctx.author.name}")
         except Exception as e:
-            logger.error(f"Erreur lors de la génération du code de vérification: {e}")
             await ctx.send("❌ Une erreur est survenue lors de la génération du code de vérification.")
 
     def parse_log_line(self, line):
@@ -55,71 +51,82 @@ class PlayerSync:
                 message = match.group(4).strip()
                 return char_name, uid, steam_id, message
         except Exception as e:
-            logger.error(f"Erreur lors du parsing de la ligne de log: {e}")
+            pass
+        return None, None, None, None
+
+    def parse_kill_line(self, line):
+        """Parse une ligne de log pour détecter un kill"""
+        try:
+            # Format attendu : [2025.06.01-17.57.38:972][555]LogKill: Killer: pago-fraise (uid 12364) killed Victim: victime-name (uid 56789)
+            match = re.search(r'LogKill: Killer: ([^()]+) \(uid (\d+)\) killed Victim: ([^()]+) \(uid (\d+)\)', line)
+            if match:
+                killer_name = match.group(1).strip()
+                killer_uid = match.group(2)
+                victim_name = match.group(3).strip()
+                victim_uid = match.group(4)
+                return killer_name, killer_uid, victim_name, victim_uid
+        except Exception as e:
+            pass
         return None, None, None, None
 
     @tasks.loop(seconds=5)
     async def check_logs(self):
-        """Vérifie les logs pour les codes de vérification"""
+        """Vérifie les logs pour les codes de vérification et les kills"""
         try:
             # Lire les logs
             log_content = self.ftp.read_database(self.log_file_path)
             if not log_content:
-                logger.error("Impossible de lire les logs")
                 return
 
-            # Convertir en texte et filtrer les lignes de chat
+            # Convertir en texte et filtrer les lignes
             log_text = log_content.decode('utf-8', errors='ignore')
             chat_lines = [line for line in log_text.splitlines() if 'ChatWindow' in line]
-            logger.info(f"Nombre de lignes de chat trouvées: {len(chat_lines)}")
+            kill_lines = [line for line in log_text.splitlines() if 'LogKill' in line]
+            
+            # Traiter les kills
+            for line in kill_lines:
+                killer_name, killer_uid, victim_name, victim_uid = self.parse_kill_line(line)
+                if killer_name and killer_uid and victim_name and victim_uid:
+                    # Vérifier si les joueurs sont valides
+                    if self.classement_db.is_valid_player(killer_name) and self.classement_db.is_valid_player(victim_name):
+                        # Mettre à jour les statistiques
+                        self.classement_db.update_kill_stats(killer_uid, killer_name, victim_uid, victim_name)
 
-            # Récupérer tous les codes de vérification en attente
+            # Traiter les codes de vérification
             pending_verifications = self.db.get_pending_verifications()
-            logger.info(f"Vérifications en attente: {len(pending_verifications)}")
 
             for discord_id, code in pending_verifications:
-                logger.info(f"Recherche du code {code} pour l'utilisateur {discord_id}")
-                
                 # Chercher le code dans les lignes de chat
                 for line in chat_lines:
                     if code in line:
-                        logger.info(f"Code trouvé dans la ligne: {line}")
-                        
                         # Extraire les informations du joueur
                         char_name, uid, steam_id, message = self.parse_log_line(line)
                         if char_name and uid and message:
-                            logger.info(f"Informations extraites - Nom: {char_name}, UID: {uid}, Steam ID: {steam_id}, Message: {message}")
-                            
                             # Vérifier que le message correspond exactement au code
                             if message == code:
                                 # Vérifier le joueur
                                 if self.db.verify_player(discord_id, char_name, uid, steam_id):
-                                    logger.info(f"Joueur vérifié avec succès: {char_name} (UID: {uid}, Steam ID: {steam_id})")
                                     # Envoyer un message de confirmation
                                     user = self.bot.get_user(int(discord_id))
                                     if user:
                                         await user.send(f"✅ Votre compte a été vérifié avec succès!\n")
                                 else:
-                                    logger.error(f"Échec de la vérification pour {char_name} (UID: {uid})")
+                                    pass
                             else:
-                                logger.info(f"Message ne correspond pas au code attendu: {message} != {code}")
+                                pass
                         else:
-                            logger.error(f"Impossible d'extraire les informations de la ligne: {line}")
+                            pass
 
         except Exception as e:
-            logger.error(f"Erreur lors de la vérification des logs: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
+            pass
 
     async def start(self):
         """Démarre le système de synchronisation"""
         self.check_logs.start()
-        logger.info("Système de synchronisation démarré")
 
     async def stop(self):
         """Arrête le système de synchronisation"""
         self.check_logs.stop()
-        logger.info("Système de synchronisation arrêté")
 
     async def get_player_info(self, ctx):
         """Affiche les informations d'un joueur"""
@@ -145,7 +152,6 @@ class PlayerSync:
                 message = "❌ Aucune information trouvée pour votre compte."
             await ctx.send(message)
         except Exception as e:
-            logger.error(f"Erreur lors de la récupération des infos du joueur: {e}")
             await ctx.send("❌ Une erreur est survenue lors de la récupération des informations.")
 
     # La fonction update_player_name a été supprimée car les joueurs ne peuvent pas changer leur nom in-game 
