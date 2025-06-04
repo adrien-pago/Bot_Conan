@@ -2,12 +2,6 @@
 
 import socket, struct, os, time
 from dotenv import load_dotenv
-import logging
-import asyncio
-
-# Configuration du logging
-logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger('rcon')
 
 load_dotenv()
 
@@ -42,7 +36,6 @@ class RconClient:
             
             return packet
         except Exception as e:
-            logger.error(f"Erreur lors de la création du paquet RCON: {e}")
             raise
 
     async def _send_packet(self, packet):
@@ -53,9 +46,7 @@ class RconClient:
             
             await asyncio.sleep(0.5)  # Réduit le délai entre les paquets
             self.sock.sendall(packet)
-            logger.debug("Paquet RCON envoyé avec succès")
         except Exception as e:
-            logger.error(f"Erreur lors de l'envoi du paquet RCON: {e}")
             self.connected = False
             raise
 
@@ -93,7 +84,6 @@ class RconClient:
                 'payload': payload
             }
         except Exception as e:
-            logger.error(f"Erreur lors de la réception du paquet RCON: {e}")
             self.connected = False
             raise
 

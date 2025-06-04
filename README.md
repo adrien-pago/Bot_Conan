@@ -10,6 +10,9 @@ Un bot Discord pour gérer et surveiller un serveur Conan Exiles.
 - Suivi des clans et de leurs statistiques
 - Commandes Discord pour interagir avec le serveur
 - Notifications automatiques pour les événements importants
+- Gestion des votes des joueurs
+- Limite de construction pour les bâtiments
+- Gestion des objets et des inventaires
 
 ## Installation
 
@@ -102,45 +105,64 @@ systemctl stop bot_conan
 ```bash
 journalctl -u bot_conan -f
 ```
-select *from users ;
-
-select * from classement ;
-
-select * from items ;
-scp root@212.227.47.132:/root/bot/bot_conan/discord.db C:\Users\PAGOA\Documents\GitHub\Bot_Conan\
-
-
-$!w49rG!!F
-
 
 ## Structure du Projet
 
 ```
 Bot_Conan/
-├── bot.py                   # Point d'entrée principal
-├── config/
-│   ├── settings.py          # Configuration
-│   └── logging_config.py    # Configuration des logs
-├── core/
-│   ├── bot_core.py          # Classe principale du bot
-│   └── commands.py          # Gestion des commandes Discord
-├── features/
-│   ├── build_tracker.py     # Suivi des constructions
-│   ├── kill_tracker.py      # Suivi des kills
-│   ├── player_tracker.py    # Suivi des joueurs
-│   └── clan_tracker.py      # Suivi des clans
-├── database/
-│   ├── _ini_.py                # Ce fichier permet à Python de reconnaître ce répertoire comme un package 
-│   ├── create_items_table.py   # Ce fichier permet à Python de reconnaître ce répertoire comme un package 
-│   ├── database_build.py       # Gestion de la base de données
-│   ├── database_classement.py  # Gestion de la base de données
-│   ├── database_sync.py
-│   └── init_database.py
-├── utils/
-│   ├── rcon_client.py       # Client RCON
-│   ├── ftp_handler.py       # Gestion FTP
-│   └── helpers.py           # Fonctions utilitaires
-└── requirements.txt
+├── bot.py                       # Point d'entrée principal du bot
+├── bot_conan.service            # Configuration du service systemd
+├── deploy.ps1                   # Script PowerShell pour le déploiement
+├── requirements.txt             # Liste des dépendances Python
+├── discord.db                   # Base de données SQLite pour Discord
+├── .env                         # Variables d'environnement (à créer)
+├── .gitignore                   # Fichiers ignorés par git
+├── pyrightconfig.json           # Configuration pour Pyright (linter)
+│
+├── config/                      # Configuration du bot
+│   ├── __init__.py             # Initialisation du package
+│   ├── settings.py             # Paramètres généraux du bot
+│   └── logging_config.py       # Configuration des logs
+│
+├── core/                        # Composants principaux
+│   ├── __init__.py             # Initialisation du package
+│   ├── bot_core.py             # Classe principale du bot
+│   └── commands.py             # Gestion des commandes Discord
+│
+├── database/                    # Gestion de la base de données
+│   ├── __init__.py             # Initialisation du package
+│   ├── database_sync.py        # Synchronisation des données
+│   ├── database_classement.py  # Gestion du classement des joueurs
+│   ├── database_build.py       # Gestion des constructions
+│   ├── create_items_table.py   # Création des tables d'objets
+│   └── init_database.py        # Initialisation de la BDD
+│
+├── features/                    # Fonctionnalités du bot
+│   ├── __init__.py             # Initialisation du package
+│   ├── build_limit.py          # Limitation des constructions
+│   ├── classement_player.py    # Système de classement des joueurs
+│   ├── item_manager.py         # Gestion des objets in-game
+│   ├── player_sync.py          # Synchronisation des données joueurs
+│   ├── player_tracker.py       # Suivi des activités des joueurs
+│   └── vote_tracker.py         # Système de votes
+│
+├── utils/                       # Utilitaires
+│   ├── __init__.py             # Initialisation du package
+│   ├── rcon_client.py          # Client RCON pour communiquer avec le serveur
+│   ├── ftp_handler.py          # Gestion des connections FTP
+│   └── helpers.py              # Fonctions utilitaires diverses
+│
+├── logs/                        # Dossier contenant les fichiers logs
+│
+├── Deploy-files/                # Fichiers pour le déploiement
+│   ├── config/                 # Config pour déploiement
+│   ├── core/                   # Core pour déploiement
+│   ├── database/               # Database pour déploiement
+│   ├── features/               # Features pour déploiement
+│   ├── logs/                   # Logs pour déploiement
+│   └── utils/                  # Utils pour déploiement
+│
+└── Tests/                       # Tests unitaires et d'intégration
 ```
 
 ## Commandes Discord
@@ -150,6 +172,8 @@ Bot_Conan/
 - `!builds` : Affiche les constructions en cours
 - `!players` : Affiche la liste des joueurs connectés
 - `!clans` : Affiche les statistiques des clans
+- `!vote` : Système de vote pour les joueurs
+- `!item` : Gestion des objets et inventaires
 
 ## Fonctionnalités Automatiques
 
@@ -158,6 +182,22 @@ Bot_Conan/
 - Notifications des constructions terminées
 - Suivi de l'activité des joueurs et des clans
 - Sauvegarde automatique des statistiques
+- Synchronisation avec la base de données du serveur Conan Exiles
+- Limitations des constructions pour les joueurs
+- Gestion des objets spéciaux et starter packs
+
+## Base de données
+
+Le bot utilise SQLite pour stocker les informations :
+- `discord.db` : Stocke les données liées à Discord et aux joueurs
+- Tables principales :
+  - `users` : Informations sur les joueurs
+  - `classement` : Classement des joueurs
+  - `items` : Objets du jeu
+
+## Notes Techniques
+
+
 
 ## Sécurité
 
@@ -175,9 +215,3 @@ Les contributions sont les bienvenues ! N'hésitez pas à ouvrir une issue ou à
 Ce projet est sous licence MIT. Voir le fichier `LICENSE` pour plus de détails.
 
 inventory type 0= inventaire 2= bare en bas
-
-
- # Liste des template_id pour le starter pack
-            starter_items = [
-                51020, 51312, 53002, 52001, 52002, 52003, 52004, 52005, 80852, 92226, 2708
-            ]

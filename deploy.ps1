@@ -15,6 +15,7 @@ Copy-Item "bot.py", ".env", "requirements.txt", "bot_conan.service", "discord.db
 # Copier les dossiers avec leur contenu
 Copy-Item "config\*" -Destination "$deployFolder\config" -Recurse
 Copy-Item "core\*" -Destination "$deployFolder\core" -Recurse
+Copy-Item "commandes\*" -Destination "$deployFolder\commandes" -Recurse
 Copy-Item "database\*" -Destination "$deployFolder\database" -Recurse
 Copy-Item "features\*" -Destination "$deployFolder\features" -Recurse
 Copy-Item "utils\*" -Destination "$deployFolder\utils" -Recurse
@@ -38,6 +39,7 @@ Write-Host "- discord.db"
 Write-Host "- Dossier config/"
 Write-Host "- Dossier core/"
 Write-Host "- Dossier database/"
+Write-Host "- Dossier commandes/"
 Write-Host "- Dossier features/"
 Write-Host "- Dossier utils/"
 Write-Host "- Dossier logs/"
