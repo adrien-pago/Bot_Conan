@@ -53,30 +53,43 @@ class KillTracker:
         message += "```"
         return message
 
+    async def delete_bot_messages(self, channel):
+        """Supprime tous les messages du bot dans le channel."""
+        async for message in channel.history(limit=100):
+            if message.author == self.bot.user:
+                try:
+                    await message.delete()
+                except:
+                    pass
+
+    def stats_have_changed(self, new_stats):
+        """Vérifie si les statistiques ont changé"""
+        if self.last_stats is None:
+            return True
+        if len(new_stats) != len(self.last_stats):
+            return True
+        for (old_name, old_kills), (new_name, new_kills) in zip(self.last_stats, new_stats):
+            if old_name != new_name or old_kills != new_kills:
+                return True
+        return False
+
     @tasks.loop(seconds=5)
     async def update_kills_task(self):
         """Met à jour le classement des kills toutes les 5 secondes"""
-        # Vérifier les kills dans la base de données du jeu
         self.db.check_kills(self.ftp)
-        # Vérifier si on doit mettre à jour l'affichage
         current_time = time.time()
-        if current_time - self.last_update_time < self.min_update_interval:
-            return
-        # Mettre à jour l'affichage
         channel = self.bot.get_channel(self.channel_id)
         if not channel:
             return
         stats = self.db.get_kill_stats()
         if not stats:
             return
+        # Vérifier si les stats ont changé
+        if not self.stats_have_changed(stats):
+            return
+        # Supprimer tous les anciens messages du bot
+        await self.delete_bot_messages(channel)
         message = self.format_kill_stats(stats)
-        # Supprimer l'ancien message si on en a un
-        if self.last_message:
-            try:
-                await self.last_message.delete()
-            except:
-                pass
-        # Envoyer le nouveau message
         self.last_message = await channel.send(message)
         self.last_stats = stats
         self.last_update_time = current_time

@@ -75,28 +75,20 @@ class DatabaseClassement:
         """Met à jour les statistiques de kills dans la base de données"""
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
-        
         try:
-            # Vérifier si le kill a déjà été comptabilisé
-            c.execute('''
-                SELECT last_kill FROM classement 
-                WHERE player_name = ?
-            ''', (killer_name,))
-            
+            norm_name = killer_name.strip().lower()
+            # Vérifier si le joueur existe déjà
+            c.execute('SELECT kills, last_kill FROM classement WHERE player_name = ?', (norm_name,))
             result = c.fetchone()
-            if result and result[0] and int(result[0]) >= kill_time:
-                return  # Le kill a déjà été comptabilisé
-            
-            # Mettre à jour ou insérer les stats
-            c.execute('''
-                INSERT OR REPLACE INTO classement (player_name, kills, last_kill)
-                VALUES (
-                    ?,
-                    COALESCE((SELECT kills + 1 FROM classement WHERE player_name = ?), 1),
-                    ?
-                )
-            ''', (killer_name, killer_name, kill_time))
-            
+            if result:
+                last_kill = result[1]
+                if last_kill and int(last_kill) >= kill_time:
+                    return  # Le kill a déjà été comptabilisé
+                # Mise à jour : incrémenter kills et mettre à jour last_kill
+                c.execute('UPDATE classement SET kills = kills + 1, last_kill = ? WHERE player_name = ?', (kill_time, norm_name))
+            else:
+                # Nouveau joueur : insertion
+                c.execute('INSERT INTO classement (player_name, kills, last_kill) VALUES (?, ?, ?)', (norm_name, 1, kill_time))
             conn.commit()
             logger.info(f"Stats mises à jour pour {killer_name}")
         except Exception as e:
@@ -106,20 +98,19 @@ class DatabaseClassement:
             conn.close()
 
     def get_kill_stats(self):
-        """Récupère les statistiques de kills triées par nombre de kills"""
+        """Récupère les statistiques de kills triées par nombre de kills, sans doublons (insensible à la casse)"""
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
-        
         try:
             c.execute('''
-                SELECT DISTINCT player_name, kills
+                SELECT lower(trim(player_name)) as norm_name, SUM(kills) as total_kills
                 FROM classement
                 WHERE player_name IS NOT NULL 
                 AND player_name != ''
-                ORDER BY kills DESC, player_name ASC
+                GROUP BY norm_name
+                ORDER BY total_kills DESC, norm_name ASC
                 LIMIT 30
             ''')
-            
             stats = c.fetchall()
             return stats
         except Exception as e:

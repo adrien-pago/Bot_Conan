@@ -4,8 +4,23 @@ from discord.ext import tasks
 from config.logging_config import setup_logging
 from database.database_sync import DatabaseSync
 import sqlite3
+import json
+import os
+from utils.ftp_handler import FTPHandler
 
 logger = setup_logging()
+
+LAST_VOTE_FILE = 'last_vote.json'
+
+def load_last_votes():
+    if os.path.exists(LAST_VOTE_FILE):
+        with open(LAST_VOTE_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    return {}
+
+def save_last_votes(data):
+    with open(LAST_VOTE_FILE, 'w', encoding='utf-8') as f:
+        json.dump(data, f)
 
 class VoteTracker:
     def __init__(self, bot, top_server_channel_id, server_prive_channel_id, ftp_handler=None):
@@ -15,8 +30,9 @@ class VoteTracker:
         self.server_prive_channel_id = server_prive_channel_id
         self.ftp = ftp_handler or FTPHandler()
         self.db = DatabaseSync()
-        self.last_top_server_message = None
-        self.last_server_prive_message = None
+        self.last_votes = load_last_votes()
+        self.last_top_server_message = self.last_votes.get('top_server', None)
+        self.last_server_prive_message = self.last_votes.get('server_prive', None)
         logger.info(f"VoteTracker initialisé avec les canaux: Top-Serveurs={top_server_channel_id}, Serveur Privé={server_prive_channel_id}")
 
     @tasks.loop(seconds=10)
@@ -45,8 +61,10 @@ class VoteTracker:
                             # Mettre à jour le wallet
                             await self.update_wallet(player_name)
                             
-                            # Mettre à jour le dernier message vu
+                            # Mettre à jour le dernier message vu et sauvegarder
                             self.last_top_server_message = message.id
+                            self.last_votes['top_server'] = message.id
+                            save_last_votes(self.last_votes)
                             logger.info(f"Nouveau dernier message Top-Serveurs: {self.last_top_server_message}")
                             break
                         except Exception as e:
@@ -75,8 +93,10 @@ class VoteTracker:
                             # Mettre à jour le wallet
                             await self.update_wallet(player_name)
                             
-                            # Mettre à jour le dernier message vu
+                            # Mettre à jour le dernier message vu et sauvegarder
                             self.last_server_prive_message = message.id
+                            self.last_votes['server_prive'] = message.id
+                            save_last_votes(self.last_votes)
                             logger.info(f"Nouveau dernier message Serveur Privé: {self.last_server_prive_message}")
                             break
                         except Exception as e:
