@@ -10,7 +10,7 @@ foreach ($folder in $folders) {
 }
 
 # Copier les fichiers principaux
-Copy-Item "bot.py", ".env", "requirements.txt", "bot_conan.service", "discord.db" -Destination $deployFolder
+Copy-Item "bot.py", ".env", "requirements.txt", "bot_conan.service" -Destination $deployFolder
 
 # Copier les dossiers avec leur contenu
 Copy-Item "config\*" -Destination "$deployFolder\config" -Recurse
@@ -35,7 +35,6 @@ Write-Host "- bot.py"
 Write-Host "- .env"
 Write-Host "- requirements.txt"
 Write-Host "- bot_conan.service"
-Write-Host "- discord.db"
 Write-Host "- Dossier config/"
 Write-Host "- Dossier core/"
 Write-Host "- Dossier database/"
