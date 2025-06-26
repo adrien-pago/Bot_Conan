@@ -152,6 +152,25 @@ systemctl stop bot_conan
 
 # Voir les logs en temps réel
 journalctl -u bot_conan -f
+
+
+# Se connecter à la base de données
+sqlite3 /root/bot/bot_conan/discord.db
+
+# Voir les tables disponibles
+.tables
+
+# Vider complètement la table classement
+DELETE FROM classement;
+
+# Optionnel : Réinitialiser l'auto-increment
+DELETE FROM sqlite_sequence WHERE name='classement';
+
+# Vérifier que la table est vide
+SELECT COUNT(*) FROM classement;
+
+# Quitter SQLite
+.quit
 ```
 
 ## 🎯 **Commandes Discord**

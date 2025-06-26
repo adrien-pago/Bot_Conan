@@ -19,6 +19,7 @@ class KillTracker:
         self.last_update_time = 0
         self.last_stats = None
         self.min_update_interval = 30  # Délai minimum entre les mises à jour visuelles (en secondes)
+        self.last_processed_kills = set()  # Pour éviter les doublons
 
     async def start(self):
         """Démarre le tracker de kills"""
@@ -41,15 +42,20 @@ class KillTracker:
         if not stats:
             return "```\nAucune statistique disponible\n```"
 
+        # Récupérer le nombre total de joueurs
+        total_players = self.db.get_total_players_count()
+
         message = "```\n🏆 Classement des Kills 🏆\n\n"
-        message += "Rang | Joueur       | Kills\n"
-        message += "-----|--------------|-------\n"
+        message += "Rang | Joueur           | Kills\n"
+        message += "-----|------------------|-------\n"
 
         for i, stat in enumerate(stats, 1):
-            player_name = stat[0][:12].ljust(12)
+            # Afficher le nom original (pas en minuscules)
+            player_name = stat[0][:16].ljust(16)  # Augmenté à 16 caractères
             kills = str(stat[1]).rjust(5)
             message += f"{i:3d}  | {player_name} | {kills}\n"
 
+        message += f"\n📊 Top 30 sur {total_players} joueurs\n"
         message += "```"
         return message
 
@@ -73,26 +79,36 @@ class KillTracker:
                 return True
         return False
 
-    @tasks.loop(seconds=5)
+    @tasks.loop(seconds=10)  # Changé de 5 à 10 secondes
     async def update_kills_task(self):
-        """Met à jour le classement des kills toutes les 5 secondes"""
-        self.db.check_kills(self.ftp)
-        current_time = time.time()
-        channel = self.bot.get_channel(self.channel_id)
-        if not channel:
-            return
-        stats = self.db.get_kill_stats()
-        if not stats:
-            return
-        # Vérifier si les stats ont changé
-        if not self.stats_have_changed(stats):
-            return
-        # Supprimer tous les anciens messages du bot
-        await self.delete_bot_messages(channel)
-        message = self.format_kill_stats(stats)
-        self.last_message = await channel.send(message)
-        self.last_stats = stats
-        self.last_update_time = current_time
+        """Met à jour le classement des kills toutes les 10 secondes"""
+        try:
+            # Vérifier les nouveaux kills
+            new_kills_detected = self.db.check_kills(self.ftp)
+            
+            current_time = time.time()
+            channel = self.bot.get_channel(self.channel_id)
+            if not channel:
+                return
+            
+            # Récupérer les stats (top 30 seulement pour l'affichage)
+            stats = self.db.get_kill_stats()
+            if not stats:
+                return
+            
+            # Vérifier si les stats ont changé OU si de nouveaux kills ont été détectés
+            if not self.stats_have_changed(stats) and not new_kills_detected:
+                return
+            
+            # Supprimer tous les anciens messages du bot
+            await self.delete_bot_messages(channel)
+            message = self.format_kill_stats(stats)
+            self.last_message = await channel.send(message)
+            self.last_stats = stats
+            self.last_update_time = current_time
+            
+        except Exception as e:
+            print(f"Erreur dans update_kills_task: {e}")
 
     @update_kills_task.before_loop
     async def before_update_kills_task(self):
