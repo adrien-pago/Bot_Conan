@@ -153,7 +153,6 @@ systemctl stop bot_conan
 # Voir les logs en temps réel
 journalctl -u bot_conan -f
 
-
 # Se connecter à la base de données
 sqlite3 /root/bot/bot_conan/discord.db
 

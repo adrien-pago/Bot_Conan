@@ -8,13 +8,28 @@ COMMANDE_CHANNEL_ID = int(os.getenv('COMMANDE_CHANNEL_ID', 1375046216097988629))
 DB_PATH = 'discord.db'
 
 CATEGORY_STYLES = {
-    "Armes":      {"color": 0xC0392B, "icon": "https://cdn-icons-png.flaticon.com/128/868/868732.png"},
-    "Outils":     {"color": 0x2980B9, "icon": "https://cdn-icons-png.flaticon.com/128/675/675579.png"},
-    "Ressources": {"color": 0x27AE60, "icon": "https://cdn-icons-png.flaticon.com/128/15613/15613975.png"},
-    "Stockage":   {"color": 0xF39C12, "icon": "https://cdn-icons-png.flaticon.com/128/1355/1355876.png"},
-    "Pets":       {"color": 0x8E44AD, "icon": "https://cdn-icons-png.flaticon.com/128/5511/5511666.png"},
-    "Potions":    {"color": 0x16A085, "icon": "https://cdn-icons-png.flaticon.com/128/8331/8331206.png"},
+    "Outils":     {"color": 0x3498DB, "icon": "https://cdn-icons-png.flaticon.com/128/7213/7213807.png"},  # Bleu
+    "Ressources": {"color": 0x27AE60, "icon": "https://cdn-icons-png.flaticon.com/128/17257/17257592.png"}, # Vert
+    "Pets":       {"color": 0x8E44AD, "icon": "https://cdn-icons-png.flaticon.com/128/5511/5511666.png"},   # Violet
+    "Alchimie":   {"color": 0x16A085, "icon": "https://cdn-icons-png.flaticon.com/128/3828/3828771.png"},   # Turquoise
+    "Recipe":     {"color": 0xF39C12, "icon": "https://cdn-icons-png.flaticon.com/128/1041/1041373.png"},   # Orange
+    "Thrall":     {"color": 0xC0392B, "icon": "https://cdn-icons-png.flaticon.com/128/3805/3805896.png"},   # Rouge
+    "Atelier":    {"color": 0x95A5A6, "icon": "https://cdn-icons-png.flaticon.com/128/1504/1504085.png"},   # Gris
+    "Sorcellery": {"color": 0x9B59B6, "icon": "https://cdn-icons-png.flaticon.com/128/2106/2106218.png"},   # Violet foncé
+    
 }
+
+# Ordre d'affichage des catégories
+CATEGORY_ORDER = [
+    "Outils",
+    "Ressources", 
+    "Pets",
+    "Alchimie",
+    "Recipe",
+    "Thrall",
+    "Atelier",
+    "Sorcellery",
+]
 
 class Shop(commands.Cog):
     def __init__(self, bot):
@@ -76,22 +91,46 @@ class Shop(commands.Cog):
                 'price': price
             })
 
-        # Envoyer un embed par catégorie avec style
-        for category, items in shop_dict.items():
-            style = CATEGORY_STYLES.get(category, {"color": 0x95A5A6, "icon": None})
-            embed = discord.Embed(
-                title=f"__**{category.upper()}**__",
-                color=style["color"]
-            )
-            if style["icon"]:
-                embed.set_thumbnail(url=style["icon"])
-            for item in items:
-                embed.add_field(
-                    name=f"{item['name']} (ID: {item['id_item_shop']})",
-                    value=f"Quantité: `{item['count']}`\nPrix: `{item['price']} coins`",
-                    inline=False
+        # Envoyer un embed par catégorie dans l'ordre défini
+        for category in CATEGORY_ORDER:
+            if category in shop_dict:  # Vérifier que la catégorie existe
+                items = shop_dict[category]
+                style = CATEGORY_STYLES.get(category, {"color": 0x95A5A6, "icon": None})
+                
+                embed = discord.Embed(
+                    title=f"__**{category.upper()}**__",
+                    description=f"*{len(items)} item(s) disponible(s)*",
+                    color=style["color"]
                 )
-            await shop_channel.send(embed=embed)
+                if style["icon"]:
+                    embed.set_thumbnail(url=style["icon"])
+                    
+                for item in items:
+                    embed.add_field(
+                        name=f"🔹 {item['name']} (ID: {item['id_item_shop']})",
+                        value=f"📦 Quantité: `{item['count']}`\n💰 Prix: `{item['price']} coins`",
+                        inline=False
+                    )
+                    
+                embed.set_footer(text=f"Utilisez !buy <ID> pour acheter un item")
+                await shop_channel.send(embed=embed)
+        
+        # Afficher les catégories non définies dans CATEGORY_ORDER (au cas où)
+        for category, items in shop_dict.items():
+            if category not in CATEGORY_ORDER:
+                style = CATEGORY_STYLES.get(category, {"color": 0x95A5A6, "icon": None})
+                embed = discord.Embed(
+                    title=f"__**{category.upper()}**__ ⚠️",
+                    description=f"*{len(items)} item(s) - Catégorie non classée*",
+                    color=style["color"]
+                )
+                for item in items:
+                    embed.add_field(
+                        name=f"🔹 {item['name']} (ID: {item['id_item_shop']})",
+                        value=f"📦 Quantité: `{item['count']}`\n💰 Prix: `{item['price']} coins`",
+                        inline=False
+                    )
+                await shop_channel.send(embed=embed)
         await ctx.send("✅ Shop affiché dans le channel shop avec des embeds stylés !")
 
 async def setup(bot):

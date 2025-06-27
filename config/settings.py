@@ -27,12 +27,12 @@ RCON_PORT = int(os.getenv('RCON_PORT', '25575'))
 RCON_PASSWORD = os.getenv('RCON_PASSWORD')
 
 # Constantes du jeu
-LIMITE_CONSTRUCTION = 12000
+LIMITE_CONSTRUCTION = 10000
 MAX_PLAYERS = 40
 
 # Configuration des tâches planifiées
-UPDATE_CHANNEL_INTERVAL = 8  # minutes
-BUILD_CHECK_INTERVAL = 5     # minutes
+UPDATE_CHANNEL_INTERVAL = 6  # minutes
+BUILD_CHECK_INTERVAL = 60     # minutes
 KILLS_UPDATE_INTERVAL = 1    # minute
 
 # Configuration des raids

@@ -126,162 +126,162 @@ class RCONClient:
         req_id, type_id, _ = self._recv_packet()
         return req_id != -1  # -1 = échec
 
-    def execute(self, command: str) -> str:
-        """Exécute une commande RCON avec gestion du rate limiting"""
+    def execute(self, command: str, auto_retry: bool = True) -> str:
+        """Exécute une commande RCON avec gestion du rate limiting et reconnexion automatique"""
         self._rate_limit_check()
-        self._ensure_connection()
         
-        # Utiliser un autre ID (2) pour l'exécution de commande (type=2)
-        self._send_packet(2, 2, command)
-        _, _, payload = self._recv_packet()
-        
-        # Vérifier si la réponse indique "Too many commands"
-        if "Too many commands" in payload:
-            logger.warning(f"Rate limit RCON atteint pour la commande '{command}'. Attente de 5 secondes...")
-            time.sleep(5)  # Attendre 5 secondes avant de réessayer
-            raise RuntimeError("Too many commands, try again later")
-        
-        return payload
-
-    def get_online_players(self) -> list[str]:
-        """Récupère la liste des joueurs connectés"""
         try:
             self._ensure_connection()
             
-            # Essayer la commande GetPlayerList spécifique à Conan Exiles
-            try:
-                resp_player_list = self.execute("GetPlayerList")
-                logger.debug(f"Réponse de GetPlayerList: {resp_player_list}")
-                
-                # Si la commande a fonctionné et retourne des données JSON valides
-                if resp_player_list and resp_player_list.strip() and "{" in resp_player_list:
-                    try:
-                        # Nettoyer la réponse si nécessaire pour obtenir un JSON valide
-                        json_str = resp_player_list.strip()
-                        if json_str.startswith("Command 'GetPlayerList' succeeded!"):
-                            json_str = json_str.replace("Command 'GetPlayerList' succeeded!", "").strip()
-                        
-                        # Analyser le JSON
-                        player_data = json.loads(json_str)
-                        players = []
-                        
-                        # Format attendu: {"players": [{"playerId": 12345, "name": "PlayerName", "charName": "CharacterName"}, ...]}
-                        if "players" in player_data and isinstance(player_data["players"], list):
-                            for player in player_data["players"]:
-                                # Utiliser le nom du personnage s'il existe, sinon le nom du joueur
-                                if "charName" in player and player["charName"]:
-                                    players.append(player["charName"])
-                                elif "name" in player and player["name"]:
-                                    players.append(player["name"])
-                        
-                            if players:
-                                logger.info(f"Joueurs connectés via GetPlayerList: {players}")
-                                return players
-                    except Exception as e:
-                        logger.warning(f"Erreur lors du parsing du JSON de GetPlayerList: {e}")
-            except RuntimeError as e:
-                if "Too many commands" in str(e):
-                    logger.warning("GetPlayerList: Too many commands, passage à ListPlayers")
-                else:
-                    raise
+            # Utiliser un autre ID (2) pour l'exécution de commande (type=2)
+            self._send_packet(2, 2, command)
+            _, _, payload = self._recv_packet()
             
-            # Si GetPlayerList n'a pas fonctionné, essayer avec ListPlayers
+            # Vérifier si la réponse indique "Too many commands"
+            if "Too many commands" in payload:
+                logger.warning(f"Rate limit RCON atteint pour la commande '{command}'. Attente de 5 secondes...")
+                time.sleep(5)  # Attendre 5 secondes avant de réessayer
+                raise RuntimeError("Too many commands, try again later")
+            
+            return payload
+            
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError) as e:
+            # Gestion spécifique des erreurs de connexion
+            logger.warning(f"Connexion RCON perdue lors de l'exécution de '{command}': {e}")
+            self.connected = False
+            
+            if auto_retry:
+                logger.info("Tentative de reconnexion automatique...")
+                try:
+                    self._connect()
+                    # Réessayer la commande une seule fois après reconnexion
+                    return self.execute(command, auto_retry=False)
+                except Exception as reconnect_error:
+                    logger.error(f"Échec de la reconnexion automatique: {reconnect_error}")
+                    raise RuntimeError(f"Connexion RCON perdue et reconnexion échouée: {e}")
+            else:
+                raise RuntimeError(f"Erreur RCON: {e}")
+                
+        except Exception as e:
+            logger.error(f"Erreur lors de l'exécution de la commande RCON '{command}': {e}")
+            raise
+
+    def get_online_players(self) -> list[str]:
+        """Récupère la liste des joueurs connectés avec reconnexion automatique"""
+        max_attempts = 2  # Maximum 2 tentatives
+        
+        for attempt in range(max_attempts):
             try:
-                resp = self.execute("ListPlayers")
-                logger.debug(f"Réponse brute de ListPlayers: {resp}")
+                self._ensure_connection()
                 
-                # Si aucun joueur n'est connecté
-                if "No players" in resp or not resp.strip():
-                    logger.info("Aucun joueur connecté")
-                    return []
-                
-                # Vérifier si la réponse contient une erreur
-                if "Too many commands" in resp:
-                    logger.warning("ListPlayers: Too many commands, retour liste vide")
-                    return []
-                
-                players = []
-                
-                # Analyser la réponse ligne par ligne
-                lines = resp.splitlines()
-                
-                # Ignorer la ligne d'en-tête si elle existe
-                if lines and ("Idx" in lines[0] or "Char name" in lines[0] or "Player name" in lines[0]):
-                    lines = lines[1:]
+                # Essayer la commande GetPlayerList spécifique à Conan Exiles
+                try:
+                    resp_player_list = self.execute("GetPlayerList", auto_retry=(attempt == 0))
+                    logger.debug(f"Réponse de GetPlayerList: {resp_player_list}")
                     
-                for line in lines:
-                    if not line.strip():
-                        continue
-                        
-                    try:
-                        logger.debug(f"Ligne ListPlayers: {line}")
-                        
-                        # Format attendu: Idx | Char name | Player name | User ID | Platform ID | Platform Name
-                        if "|" in line:
-                            parts = line.split("|")
-                            if len(parts) >= 2:  # Au moins l'index et le nom du personnage
-                                char_name = parts[1].strip()
-                                if char_name and char_name != "Char name":
-                                    players.append(char_name)
-                                    logger.debug(f"Joueur trouvé: {char_name}")
-                        else:
-                            # Format alternatif sans pipes
-                            parts = line.strip().split()
-                            if len(parts) >= 3:  # Au moins l'index, le nom et quelque chose d'autre
-                                # Essayer de récupérer le nom du personnage (souvent la deuxième colonne)
-                                char_name = parts[1]
-                                if char_name and char_name != "Steam" and not char_name.isdigit() and char_name != "many":
-                                    players.append(char_name)
-                                    logger.debug(f"Joueur trouvé (format alternatif): {char_name}")
-                    except Exception as e:
-                        logger.warning(f"Erreur lors du parsing d'une ligne de ListPlayers: {line} - {str(e)}")
+                    # Si la commande a fonctionné et retourne des données JSON valides
+                    if resp_player_list and resp_player_list.strip() and "{" in resp_player_list:
+                        try:
+                            # Nettoyer la réponse si nécessaire pour obtenir un JSON valide
+                            json_str = resp_player_list.strip()
+                            if json_str.startswith("Command 'GetPlayerList' succeeded!"):
+                                json_str = json_str.replace("Command 'GetPlayerList' succeeded!", "").strip()
+                            
+                            # Analyser le JSON
+                            player_data = json.loads(json_str)
+                            players = []
+                            
+                            # Format attendu: {"players": [{"playerId": 12345, "name": "PlayerName", "charName": "CharacterName"}, ...]}
+                            if "players" in player_data and isinstance(player_data["players"], list):
+                                for player in player_data["players"]:
+                                    # Utiliser le nom du personnage s'il existe, sinon le nom du joueur
+                                    if "charName" in player and player["charName"]:
+                                        players.append(player["charName"])
+                                    elif "name" in player and player["name"]:
+                                        players.append(player["name"])
+                            
+                                if players:
+                                    logger.info(f"Joueurs connectés via GetPlayerList: {players}")
+                                    return players
+                        except Exception as e:
+                            logger.warning(f"Erreur lors du parsing du JSON de GetPlayerList: {e}")
+                except RuntimeError as e:
+                    if "Too many commands" in str(e):
+                        logger.warning("GetPlayerList: Too many commands, passage à ListPlayers")
+                    elif "Connexion RCON perdue" in str(e) and attempt == 0:
+                        logger.warning("GetPlayerList: Connexion perdue, nouvelle tentative...")
+                        continue  # Réessayer avec ListPlayers
+                    else:
+                        raise
                 
-                # Si on a trouvé des joueurs, on retourne la liste
-                if players:
-                    logger.info(f"Joueurs connectés avec noms de personnage: {players}")
+                # Si GetPlayerList n'a pas fonctionné, essayer avec ListPlayers
+                try:
+                    resp = self.execute("ListPlayers", auto_retry=(attempt == 0))
+                    logger.debug(f"Réponse brute de ListPlayers: {resp}")
+                    
+                    # Si aucun joueur n'est connecté
+                    if "No players" in resp or not resp.strip():
+                        logger.info("Aucun joueur connecté")
+                        return []
+                    
+                    # Vérifier si la réponse contient une erreur
+                    if "Too many commands" in resp:
+                        logger.warning("ListPlayers: Too many commands, retour liste vide")
+                        return []
+                    
+                    # Analyser la liste des joueurs
+                    players = []
+                    lines = resp.split('\n')
+                    
+                    for line in lines:
+                        line = line.strip()
+                        if line and not line.startswith('Command') and not line.startswith('Player'):
+                            # Format typique: "PlayerName (Steam ID: 76561198123456789)"
+                            if '(' in line:
+                                player_name = line.split('(')[0].strip()
+                                if player_name:
+                                    players.append(player_name)
+                            elif line:  # Si pas de parenthèses, prendre la ligne entière
+                                players.append(line)
+                    
+                    logger.info(f"Joueurs connectés via ListPlayers: {players}")
                     return players
                     
-            except RuntimeError as e:
-                if "Too many commands" in str(e):
-                    logger.warning("ListPlayers: Too many commands, retour liste vide")
-                    return []
-                else:
-                    raise
-            
-            # Dernier recours: si la commande ListPlayerIDs est disponible
-            try:
-                resp2 = self.execute("ListPlayerIDs")
-                logger.debug(f"Réponse de ListPlayerIDs: {resp2}")
+                except RuntimeError as e:
+                    if "Connexion RCON perdue" in str(e) and attempt == 0:
+                        logger.warning("ListPlayers: Connexion perdue, nouvelle tentative...")
+                        continue  # Réessayer
+                    else:
+                        raise
+                        
+                # Si on arrive ici, les deux commandes ont échoué mais sans erreur de connexion
+                logger.warning("Aucune commande RCON n'a fonctionné, retour liste vide")
+                return []
                 
-                # Ne pas traiter si la commande n'existe pas
-                if "Couldn't find the command" in resp2:
-                    logger.warning("La commande ListPlayerIDs n'est pas disponible")
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError) as e:
+                logger.error(f"Erreur de connexion RCON (tentative {attempt + 1}/{max_attempts}): {e}")
+                self.connected = False
+                
+                if attempt < max_attempts - 1:
+                    logger.info("Tentative de reconnexion...")
+                    try:
+                        time.sleep(2)  # Attendre 2 secondes avant de réessayer
+                        self._connect()
+                    except Exception as reconnect_error:
+                        logger.error(f"Échec de la reconnexion: {reconnect_error}")
+                        continue
                 else:
-                    # Extraire les noms des joueurs
-                    lines2 = resp2.splitlines()
-                    for line in lines2:
-                        if not line.strip():
-                            continue
-                            
-                        try:
-                            parts = line.strip().split()
-                            if len(parts) >= 3:
-                                # Format possible: PlayerID CharID Name
-                                char_name = ' '.join(parts[2:])  # Le nom peut contenir des espaces
-                                if char_name and not char_name.isdigit():
-                                    players.append(char_name)
-                        except Exception as e:
-                            logger.warning(f"Erreur lors du parsing de ListPlayerIDs: {line} - {str(e)}")
+                    logger.error("Toutes les tentatives de reconnexion ont échoué")
+                    raise RuntimeError(f"Erreur lors de la récupération des joueurs en ligne: {e}")
+                    
             except Exception as e:
-                logger.warning(f"Erreur lors de l'exécution de ListPlayerIDs: {e}")
-            
-            # Retourner la liste finale des joueurs
-            logger.info(f"Joueurs connectés (final): {players}")
-            return players
-            
-        except Exception as e:
-            logger.error(f"Erreur lors de la récupération des joueurs en ligne: {str(e)}")
-            return []
+                logger.error(f"Erreur inattendue lors de la récupération des joueurs en ligne: {e}")
+                if attempt == max_attempts - 1:
+                    raise RuntimeError(f"Erreur lors de la récupération des joueurs en ligne: {e}")
+        
+        # Si on arrive ici, toutes les tentatives ont échoué
+        logger.error("Impossible de récupérer la liste des joueurs après toutes les tentatives")
+        return []
 
     def close(self):
         if self.sock:

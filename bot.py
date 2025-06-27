@@ -16,7 +16,11 @@ from features.player_sync import PlayerSync
 from features.vote_tracker import VoteTracker
 from features.item_manager import ItemManager
 from database.init_database import init_database
+from config.logging_config import setup_logging
 import glob
+
+# Initialiser le nouveau système de logging
+setup_logging()
 
 # Initialiser la base de données 
 init_database()

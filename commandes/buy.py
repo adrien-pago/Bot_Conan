@@ -1,6 +1,7 @@
 import discord
 from discord.ext import commands
 import sqlite3
+from config.logging_config import log_buy_command, log_error
 
 DB_PATH = 'discord.db'
 
@@ -69,11 +70,22 @@ class Buy(commands.Cog):
                 cursor.execute("UPDATE users SET wallet = ? WHERE discord_id = ?", (new_wallet, discord_id))
                 conn.commit()
                 conn.close()
+                
+                # 📝 LOG DE L'ACHAT RÉUSSI
+                log_buy_command(ctx.author.display_name, item_name, count, price)
+                
                 await ctx.send(f"✅ L'item **{item_name}** (x{count}) t'a été donné avec succès ! Nouveau solde : {new_wallet} coins.")
             else:
                 conn.close()
+                
+                # 📝 LOG DE L'ERREUR DE GIVE
+                log_error("BUY_GIVE", f"Échec give pour {ctx.author.display_name} - Item: {item_name} (x{count}) - Erreur: {error_msg}")
+                
                 await ctx.send(f"❌ Impossible de donner l'item **{item_name}**. {error_msg if error_msg else ''}")
         except Exception as e:
+            # 📝 LOG DE L'ERREUR GÉNÉRALE
+            log_error("BUY_COMMAND", f"Erreur commande !buy pour {ctx.author.display_name} - ID: {id_item_shop} - Erreur: {str(e)}")
+            
             await ctx.send(f"❌ Erreur lors de l'achat : {e}")
 
 async def setup(bot):

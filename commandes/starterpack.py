@@ -45,7 +45,7 @@ class StarterPack(commands.Cog):
                 try:
                     await wait_msg.edit(content=f"✅ Votre pack de départ a été ajouté à votre inventaire!\n"
                                   f"Personnage : {player_name}\n"
-                                  f"Contenu : Piolet stellaire, couteau stellaire, grande hache stellaire, coffre en fer, cheval, selle légère et extrait d'aoles.")
+                                  f"Contenu : Outils stellaire, coffre en fer, cheval, selle légère et extrait d'aoles.....")
                     logger.info("Message de réussite starterpack édité avec succès.")
                 except Exception as e:
                     logger.error(f"Erreur lors de l'édition du message de réussite starterpack: {e}")

@@ -19,18 +19,24 @@ class ItemManager:
         self.ftp = ftp_handler
         self.rcon_client = bot.player_tracker.rcon_client
         self.last_build_time = 0
-        self.build_cooldown = 60  # 60 secondes de cooldown après un build
+        self.build_cooldown = 5  # 5 secondes de cooldown après un build
 
         # Liste des template_id pour le starter pack
         self.starter_items = [
-            51020,  # Piolet stellaire
-            51312,  # Couteau stellaire
-            50492,  # Grande hache stellaire
-            80852,  # Coffre en fer
-            92226,  # Cheval
-            2708,   # Selle légère
-            53002   # Extrait d'aoles
+            (51020, 1),  # Piolet stellaire
+            (52080, 1),  # Sac a dos porteur
+            (4116, 1),   # Veste aubergiste
+            (4118, 1),   # Pantalon aubergiste
+            (52294, 1),  # Bottes d'arachnide 
+            (95227, 1),  # Gants de survivaliste
+            (92226, 1),  # Cheval
+            (2708, 1),   # Selle légère
+            (53002, 10), # Extrait d'aoles
+            (24003, 1),  # Grande hache dechiqueteuse
         ]
+
+
+
 
     def can_modify_inventory(self):
         """Vérifie si on peut modifier l'inventaire des joueurs"""
@@ -107,32 +113,25 @@ class ItemManager:
                 logger.error(f"Joueur avec Steam ID {steam_id} non trouvé en ligne ou ID manquant")
                 return False
 
-            # Mettre à jour le conid dans la base de données
-            try:
-                conn = sqlite3.connect('shop.db')
-                cursor = conn.cursor()
-                cursor.execute("UPDATE users SET conid = ? WHERE steam_id = ?", (player_conid, steam_id))
-                conn.commit()
-                conn.close()
-                logger.info(f"Conid {player_conid} mis à jour pour le joueur {target_player_name}")
-            except Exception as e:
-                logger.error(f"Erreur lors de la mise à jour du conid: {e}")
+            # Le conid est temporaire, pas besoin de le sauvegarder
 
             success_count = 0
             error_count = 0
             
-            for item_id in self.starter_items:
+            for item_data in self.starter_items:
                 try:
+                    # Décomposer le tuple (item_id, quantité)
+                    item_id, quantity = item_data
                     # Utiliser la commande RCON avec le conid du joueur
-                    command = f"con {player_conid} spawnitem {item_id} 1"
+                    command = f"con {player_conid} SpawnItem {item_id} {quantity}"
                     logger.info(f"Exécution de la commande: {command}")
                     
                     success, response = await self._execute_rcon_command(command)
                     if success and "Couldn't find a valid player" not in response:
-                        logger.info(f"Item {item_id} ajouté avec succès pour '{target_player_name}'")
+                        logger.info(f"Item {item_id} (x{quantity}) ajouté avec succès pour '{target_player_name}'")
                         success_count += 1
                     else:
-                        logger.error(f"Échec de l'ajout de l'item {item_id} pour '{target_player_name}'")
+                        logger.error(f"Échec de l'ajout de l'item {item_id} (x{quantity}) pour '{target_player_name}'")
                         error_count += 1
                     
                     # Attendre un peu entre chaque commande
@@ -207,7 +206,7 @@ class ItemManager:
             if not conid:
                 return False, "Tu dois être connecté en jeu pour recevoir l'item."
             # Exécuter la commande RCON avec le conid
-            command = f"con {conid} spawnitem {item_id} {count}"
+            command = f"con {conid} SpawnItem {item_id} {count}"
             response = self.rcon_client.execute(command)
             if response and "Unknown command" not in response:
                 logger.info(f"Item {item_id} (x{count}) ajouté avec succès pour conid {conid}")
